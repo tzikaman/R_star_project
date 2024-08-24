@@ -3,67 +3,108 @@ import struct
 
 
 
-record_dim = 2
-block_fmt = '>IIII'
-record_fmt = '>II30s' + ''.join(['d' for _ in range(record_dim)])
+point_dim = 3
+block_fmt_datafile = '>II'
+block_fmt_indexfile = '>II?'
+record_fmt_datafile = '>II30s' + ''.join(['d' for _ in range(point_dim)])
+record_fmt_indexfile_inner = '>II' + ''.join(['d' for _ in range(point_dim * point_dim)])
+record_fmt_indexfile_child = '>II' + ''.join(['d' for _ in range(point_dim)])
 
 
 
 
-class Record:
+class Record_Datafile:
 
-    def __init__(self, dim: int, record_id: int = 0, id: int = 0, name: str = 'aaaaaaaaaaaaaaa', vec: list[float] = None):
+    def __init__(self, dim: int, record_id: int = 0, id: int = 0, name: str = 'aaaaaaaaaaaaaaa', vec: list[float] = None):  # TODO : search all differences between byte strings and strings in python, especially when it comes to character size, encoding and transitions between the two
 
-        self.is_legit = False
         self.dim = dim
         self.record_id = record_id
         self.id = id
         self.name = name
         self.vec = vec if vec is not None else [0.0 for _ in range(dim)]
+
+
+class Record_Indexfile:
+
+    def __init__(self, dim: int, is_child: bool, record_id: int = 0, datafile_record_stored: tuple[int, int] = (0, 0), vec: list[float] = None):
+        self.dim = dim
+        self.is_child = is_child
+        self.record_id = record_id
+        self.datafile_record_stored = datafile_record_stored
+        if is_child:
+            self.vec = vec if vec is not None else [0.0 for _ in range(dim)]
+        else:
+            self.vec = vec if vec is not None else [[0.0 for _ in range(dim)] for _ in range(dim)]
         
+
+
 
 class Block:
 
-    def __init__(self, record_dim, size_of_record, size=0, index=0):
+    def __init__(self, point_dim, size_of_record, block_size=2**15, size=0):
 
-        self.block_size = 2**15  # in Bytes
+        self.block_size = block_size  # in Bytes
         self.max_num_of_records = self.block_size // size_of_record
         self.size = size  # current number of non dummy records
-        self.records = [Record(record_dim) for _ in range(self.max_num_of_records)]
-        self.index = index  # marks the index of the first record (first meaning smallest index in the array) that is a dummy
+        self.records = [Record_Datafile(point_dim) for _ in range(self.max_num_of_records)]
         self.id_to_index: dict = dict()
 
-    def add_record(self, r: Record):
+    def add_record(self, r: Record_Datafile):
 
         if self.size < self.max_num_of_records:
-            self.records[self.index] = r
-            self.id_to_index[r.record_id] = self.index
+            self.records[self.size] = r
+            self.id_to_index[r.record_id] = self.size
             self.size += 1
-            self.index += 1
 
     def remove_record(self, record_id: int):
 
         if record_id in self.id_to_index:
             i = self.id_to_index[record_id]
-            self.records[i] = self.records[self.index - 1]
-            self.records[self.index - 1] = Record(record_dim)
-            self.index -= 1
+            self.records[i] = self.records[self.size - 1]
+            self.records[self.size - 1] = Record_Datafile(point_dim)
             self.size -= 1
             del self.id_to_index[record_id]
 
 
 
 
+class Block_IndexFile:
+
+    def __init__(self, dim, is_child: bool, size_of_record, block_size=2**15, size=0):
+        self.dim = dim
+        self.is_child = is_child
+        self.block_size = block_size
+        self.max_num_of_records = block_size // size_of_record
+        self.size = size
+        self.records = [Record_Indexfile(dim=dim, is_child=is_child) for _ in range(self.max_num_of_records)]
+
+    def add_record(self, r: Record_Datafile):
+
+        if self.size < self.max_num_of_records:
+            self.records[self.size] = r
+            self.size += 1
+
+    def remove_record(self, record_id: int):
+
+        if record_id in self.id_to_index:
+            i = self.id_to_index[record_id]
+            self.records[i] = self.records[self.size - 1]
+            self.records[self.size - 1] = Record_Datafile(point_dim)
+            self.size -= 1
+            del self.id_to_index[record_id]
+
+
 def write_block(b: Block, datafile, offset):
 
     datafile.seek(offset)
 
-    packed_record = struct.pack(block_fmt, b.block_size, b.max_num_of_records, b.size, b.index)
+    packed_record = struct.pack(block_fmt_datafile, b.block_size, b.size)
 
     datafile.write(packed_record)
 
     for i in range(b.max_num_of_records):
-        packed_record = struct.pack(record_fmt, b.records[i].record_id, b.records[i].id, b.records[i].name.encode('utf-8'), b.records[i].vec[0], b.records[i].vec[1])
+        args = [b.records[i].record_id, b.records[i].id, b.records[i].name.encode('utf-8')] + b.records[i].vec
+        packed_record = struct.pack(record_fmt_datafile, *args)
         datafile.write(packed_record)
 
     
@@ -71,16 +112,16 @@ def load_block(datafile, offset) -> Block:
 
     datafile.seek(offset)
 
-    data_read = datafile.read(struct.calcsize(block_fmt))
+    data_read = datafile.read(struct.calcsize(block_fmt_datafile))
 
-    unpacked_block = struct.unpack(block_fmt, data_read)
+    unpacked_block = struct.unpack(block_fmt_datafile, data_read)
 
-    b: Block = Block(record_dim=record_dim, size_of_record=struct.calcsize(record_fmt), size=unpacked_block[2], index=unpacked_block[3])
+    b: Block = Block(record_dim=point_dim, size_of_record=struct.calcsize(record_fmt_datafile), block_size=unpacked_block[0], size=unpacked_block[1])
 
     for i in range(b.max_num_of_records):
-        data_read = datafile.read(struct.calcsize(record_fmt))
-        unpacked_record = struct.unpack(record_fmt, data_read)
-        b.records[i] = Record(record_dim, record_id=unpacked_record[0], id=unpacked_record[1], name=unpacked_record[2].decode('utf-8').replace('\0', ''), vec=[unpacked_record[3], unpacked_record[4]])
+        data_read = datafile.read(struct.calcsize(record_fmt_datafile))
+        unpacked_record = struct.unpack(record_fmt_datafile, data_read)
+        b.records[i] = Record_Datafile(point_dim, record_id=unpacked_record[0], id=unpacked_record[1], name=unpacked_record[2].decode('utf-8').replace('\0', ''), vec=[unpacked_record[i] for i in range(3, len(unpacked_record))])
         if i < b.size:
             b.id_to_index[unpacked_record[0]] = i
     return b
@@ -91,13 +132,13 @@ def load_block(datafile, offset) -> Block:
 if __name__ == '__main__':
 
     offsets = []
-    b1: Block = Block(record_dim=record_dim, size_of_record=struct.calcsize(record_fmt))
-    b2: Block = Block(record_dim=record_dim, size_of_record=struct.calcsize(record_fmt))
-    b1.add_record(Record(dim=record_dim, record_id=b1.index, id=1234, name='pure nigger', vec=[1.0, 2.0]))
-    b1.add_record(Record(dim=record_dim, record_id=b1.index, id=4567, name='nigga of the purest', vec=[3.0, 4.0]))
-    b1.add_record(Record(dim=record_dim, record_id=b1.index, id=8910, name='pertouli', vec=[5.0, 6.0]))
-    b2.add_record(Record(dim=record_dim, record_id=b2.index, id=1000, name='the great dick of thanos', vec=[7.0, 8.0]))
-    b2.add_record(Record(dim=record_dim, record_id=b2.index, id=2000, name='petros boglanitis', vec=[9.0, 10.0]))
+    b1: Block = Block(record_dim=point_dim, size_of_record=struct.calcsize(record_fmt_datafile))
+    b2: Block = Block(record_dim=point_dim, size_of_record=struct.calcsize(record_fmt_datafile))
+    b1.add_record(Record_Datafile(dim=point_dim, record_id=b1.size, id=1234, name='pure nigger', vec=[1.0, 2.0, 3.0]))
+    b1.add_record(Record_Datafile(dim=point_dim, record_id=b1.size, id=4567, name='nigga of the purest', vec=[3.0, 4.0, 5.0]))
+    b1.add_record(Record_Datafile(dim=point_dim, record_id=b1.size, id=8910, name='pertouli', vec=[5.0, 6.0, 7.0]))
+    b2.add_record(Record_Datafile(dim=point_dim, record_id=b2.size, id=1000, name='the great dick of thanos', vec=[7.0, 8.0, 9.0]))
+    b2.add_record(Record_Datafile(dim=point_dim, record_id=b2.size, id=2000, name='petros boglanitis', vec=[9.0, 10.0, 11.0]))
 
     with open('C:\\Users\\User\\Documents++\\programming\\code\\database_technologies\\Database_Technologies_Assignment\\R_star_project\\data_file_example.log', 'wb') as datafile:
 
