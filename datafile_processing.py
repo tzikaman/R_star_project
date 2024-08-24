@@ -90,23 +90,26 @@ def load_block(datafile, offset) -> Block:
 
 if __name__ == '__main__':
 
-    b: Block = None
+    offsets = []
     b1: Block = Block(record_dim=record_dim, size_of_record=struct.calcsize(record_fmt))
+    b2: Block = Block(record_dim=record_dim, size_of_record=struct.calcsize(record_fmt))
     b1.add_record(Record(dim=record_dim, record_id=b1.index, id=1234, name='pure nigger', vec=[1.0, 2.0]))
     b1.add_record(Record(dim=record_dim, record_id=b1.index, id=4567, name='nigga of the purest', vec=[3.0, 4.0]))
-    b1.add_record(Record(dim=record_dim, record_id=b1.index, id=89, name='pertouli', vec=[5.0, 6.0]))
+    b1.add_record(Record(dim=record_dim, record_id=b1.index, id=8910, name='pertouli', vec=[5.0, 6.0]))
+    b2.add_record(Record(dim=record_dim, record_id=b2.index, id=1000, name='the great dick of thanos', vec=[7.0, 8.0]))
+    b2.add_record(Record(dim=record_dim, record_id=b2.index, id=2000, name='petros boglanitis', vec=[9.0, 10.0]))
 
     with open('C:\\Users\\User\\Documents++\\programming\\code\\database_technologies\\Database_Technologies_Assignment\\R_star_project\\data_file_example.log', 'wb') as datafile:
 
-        write_block(b1, datafile, 0)
+        datafile.seek(0)
+        offsets.append(datafile.tell())
+        write_block(b1, datafile, datafile.tell())
+        offsets.append(datafile.tell())
+        write_block(b2, datafile, datafile.tell())
         datafile.close()
 
     with open('C:\\Users\\User\\Documents++\\programming\\code\\database_technologies\\Database_Technologies_Assignment\\R_star_project\\data_file_example.log', 'r+b') as datafile:
         
-        b = load_block(datafile, 0)
-        b.remove_record(record_id=0)
-        write_block(b, datafile, 0)
-        b = None
-        b = load_block(datafile, 0)
-        write_block(b, datafile, 0)
+        b1 = load_block(datafile, offsets[1])
+        b2 = load_block(datafile, offsets[0])
         datafile.close()
