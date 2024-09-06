@@ -1,12 +1,19 @@
 import math
 import copy
 import struct
+import random
+
+from sys import float_info
 
 
+import osm_reader
+
+
+#! check again all double loops in list initialisations
 
 
 datafile_blocks_offsets = []
-indexfile_blocks_offsets = []
+offset_for_next_block = 0
 
 
 
@@ -19,7 +26,7 @@ block_size = 2**15
 # TODO : check that the formats below are still
 # TODO : valid
 rtree_fmt = '>IIIIIII?'
-block_fmt_datafile = '>II'
+block_fmt_datafile = '>IIII'
 block_fmt_indexfile = '>I?'
 record_fmt_datafile = '>II30s' + \
     ''.join(['d' for _ in range(point_dim)])
@@ -54,12 +61,12 @@ class Record_Indexfile:
 
     def __init__(self, dim: int, 
                  is_leaf: bool, 
-                 datafile_record_stored: int | tuple[int, int], 
+                 datafile_record_stored: int | list[int, int], 
                  record_id: int = 0, 
                  vec: list[float] = None):
         # TODO : rename datafile_record_stored
-        # datafile_record_stored will be either tuple or int, 
-        # tuple when it refers to leaf node to hold block id and record id, 
+        # datafile_record_stored will be either list or int, 
+        # list when it refers to leaf node to hold block id and record id, 
         # int when Record_Indexfile refers to inner block where it will 
         # hold the block id of another Rtree node
 
@@ -72,22 +79,35 @@ class Record_Indexfile:
                 else [0.0 for _ in range(dim)]
         else:
             self.vec = vec if vec is not None \
-                else [[0.0 for _ in range(dim)] for _ in range(dim)]
+                else [[float_info.max, -float_info.max] for _ in range(dim)]
         
 
 
 
 class Block_Datafile:
 
-    def __init__(self, point_dim, size_of_record, 
-                 block_size=2**15, size=0):
-
+    block_id_counter = 0
+    def __init__(
+            self, 
+            block_id,
+            point_dim, 
+            size_of_record, 
+            block_size=2**15, 
+            size=0,
+            record_id_counter=0
+        ):
+        self.block_id = block_id
+        self.point_dim = point_dim
         self.block_size = block_size  # in Bytes
         self.max_num_of_records = self.block_size // size_of_record
         self.size = size  # current number of non dummy records
         self.records = [Record_Datafile(point_dim) \
                         for _ in range(self.max_num_of_records)]
         self.id_to_index: dict = dict()
+        self.record_id_counter = record_id_counter
+
+    def is_full(self):
+        return self.size == self.max_num_of_records
 
     def add_record(self, r: Record_Datafile):
 
@@ -95,6 +115,7 @@ class Block_Datafile:
             self.records[self.size] = r
             self.id_to_index[r.record_id] = self.size
             self.size += 1
+            return r.record_id
 
     def remove_record(self, record_id: int):
 
@@ -105,13 +126,31 @@ class Block_Datafile:
             self.size -= 1
             del self.id_to_index[record_id]
 
+    def get_next_available_record_id(self):
+        next_record_id = self.record_id_counter
+        self.record_id_counter += 1
+        return next_record_id
+
+    @staticmethod
+    def get_next_available_block_id():
+        next_block_id = Block_Datafile.block_id_counter
+        Block_Datafile.block_id_counter += 1
+        return next_block_id
+
 
 
 
 class Block_Indexfile:
 
-    def __init__(self, point_dim, is_leaf: bool, size_of_record, 
-                 block_id=0, block_size=2 ** 15, size=0):
+    def __init__(
+            self, 
+            point_dim, 
+            is_leaf: bool, 
+            size_of_record, 
+            block_id=0, 
+            block_size=2 ** 15, 
+            size=0
+        ):
         self.point_dim = point_dim
         self.is_leaf = is_leaf
         self.block_size = block_size
@@ -123,7 +162,7 @@ class Block_Indexfile:
                     dim=point_dim, 
                     is_leaf=is_leaf,
                     datafile_record_stored= \
-                        (0, 0) if is_leaf else 0
+                        [0, 0] if is_leaf else 0
                 ) 
                 for _ in range(self.max_num_of_records)
             ]
@@ -158,19 +197,28 @@ def block_write_datafile(b: Block_Datafile, datafile_name, offset):
 
     with open(datafile_name, 'r+b') as datafile:
         datafile.seek(offset)
-        packed_record = struct.pack(block_fmt_datafile, 
-                                    b.block_size, b.size)
+        packed_record = struct.pack(
+            block_fmt_datafile, 
+            b.block_id,
+            b.block_size, 
+            b.size,
+            b.record_id_counter
+        )
         datafile.write(packed_record)
 
         for i in range(b.max_num_of_records):
             args = [b.records[i].record_id, 
                     b.records[i].id, 
                     b.records[i].name.encode('utf-8')] + \
-                        b.records[i].vec
+                        [b.records[i].vec[j] for j in range(point_dim)]
             packed_record = struct.pack(record_fmt_datafile, *args)
             datafile.write(packed_record)
 
+        new_offset_for_next_block = datafile.tell()
+
         datafile.close()
+
+        return new_offset_for_next_block
 
 
 def block_write_indexfile(b: Block_Indexfile, indexfile_name, offset) -> int:
@@ -209,11 +257,15 @@ def block_load_datafile(datafile_name, offset) -> Block_Datafile:
 
         unpacked_block = struct.unpack(block_fmt_datafile, data_read)
 
-        b: Block_Datafile = Block_Datafile(record_dim=point_dim, 
-                                        size_of_record=\
-                                            struct.calcsize(record_fmt_datafile), 
-                                        block_size=unpacked_block[0], 
-                                        size=unpacked_block[1])
+        b: Block_Datafile = Block_Datafile(
+            block_id=unpacked_block[0],
+            point_dim=point_dim,
+            size_of_record=\
+            struct.calcsize(record_fmt_datafile), 
+            block_size=unpacked_block[1], 
+            size=unpacked_block[2],
+            record_id_counter=unpacked_block[3]
+        )
 
         for i in range(b.max_num_of_records):
             data_read = datafile.read(struct.calcsize(record_fmt_datafile))
@@ -250,11 +302,13 @@ def block_load_indexfile(indexfile_name, offset) -> Block_Indexfile:
             struct.unpack(block_fmt_indexfile, data_read)
 
         b: Block_Indexfile = Block_Indexfile(
-                point_dim=point_dim, is_leaf=unpacked_block[1], 
+                point_dim=point_dim, 
+                is_leaf=unpacked_block[1], 
                 size_of_record=struct.calcsize(record_fmt_indexfile_leaf) 
-                if unpacked_block[1] 
-                else struct.calcsize(record_fmt_indexfile_inner), 
-                block_size=block_size, size=unpacked_block[0]
+                if unpacked_block[1] else 
+                struct.calcsize(record_fmt_indexfile_inner), 
+                block_size=block_size, 
+                size=unpacked_block[0]
             )
 
         for i in range(b.max_num_of_records):
@@ -276,9 +330,9 @@ def block_load_indexfile(indexfile_name, offset) -> Block_Indexfile:
                         dim=point_dim, 
                         is_leaf=True, 
                         record_id=unpacked_record[0], 
-                        datafile_record_stored=(\
+                        datafile_record_stored=[
                             unpacked_record[1], unpacked_record[2]
-                        ), 
+                        ], 
                         vec=[
                             unpacked_record[3 + i] \
                                 for i in range(point_dim)
@@ -299,7 +353,9 @@ def block_load_indexfile(indexfile_name, offset) -> Block_Indexfile:
                             for i in range(point_dim)
                         ]
                     )  
-                
+            if i < b.size:
+                b.id_to_index[unpacked_record[0]] = i
+
         indexfile.close()
 
         return b
@@ -332,7 +388,7 @@ class Rtree:
         self.height = height
         if root_bounding_box is None:
             self.root_bounding_box = \
-                [(0, 0) for _ in range(point_dim)]
+                [[float_info.max, -float_info.max] for _ in range(point_dim)]
         else:
             self.root_bounding_box = root_bounding_box
         # TODO : Check if can gauge height of Tree 
@@ -417,7 +473,7 @@ class Rtree:
                                 bounding_box, 
                                 inserted_point):
         new_bb = []
-        for i in range(self.point_dim):
+        for i in range(point_dim):
             # TODO : consider rewriting below 'if block' as is 'else block'
             if is_leaf:
                 if inserted_point[i] >= bounding_box[i][0] and \
@@ -516,7 +572,7 @@ class Rtree:
                     Record_Indexfile(
                         dim=point_dim, 
                         is_leaf=current_node.is_leaf, 
-                        datafile_record_stored= (0, 0)
+                        datafile_record_stored= [0, 0]
                         if current_node.is_leaf else 0,
                         record_id=current_node
                         .give_next_available_record_id()
@@ -708,7 +764,7 @@ class Rtree:
             else:
                 node_to_split.records[i] = Record_Indexfile(
                     point_dim, node_to_split.is_leaf, 
-                    (0, 0) if node_to_split.is_leaf else 0)
+                    [0, 0] if node_to_split.is_leaf else 0)
         node_to_split.size = len(group_1)
         # creating second new block
         # (creating a new block)
@@ -798,7 +854,7 @@ class Rtree:
                         if inserted_coords[i] < bb[i][0]:
                             bb[i][0] = inserted_coords[i]
                             changed = True
-                        elif inserted_coords[i] > bb[i][1]:
+                        if inserted_coords[i] > bb[i][1]:
                             bb[i][1] = inserted_coords[i]
                             changed = True
                     else:
@@ -1011,7 +1067,8 @@ class Rtree:
 
         result = self._insert_point_recurse(self.root.is_leaf, 
                                    self.root, 
-                                   level=0, bb=self.root_bounding_box,
+                                   level=0, 
+                                   bb=self.root_bounding_box,
                                    node_reference=node_reference,
                                    inserted_coords=inserted_coords, 
                                    target_level=target_level
@@ -1080,8 +1137,7 @@ class Rtree:
 
 
     def insert_point(self, node_reference, inserted_coords):
-        self._insert_point(self, 
-                           node_reference, inserted_coords)
+        self._insert_point(node_reference, inserted_coords)
 
     def remove_point(self, record: Record_Datafile):
         pass
@@ -1110,8 +1166,8 @@ def rtree_write_indexfile(rtree: Rtree, indexfile_name):
     )
     indexfile.write(packed)
     args = [rtree.root_bounding_box[i][j] \
-            for j in range(2) \
-                for i in range(point_dim)]
+                for i in range(point_dim) \
+                    for j in range(2)]
     packed = struct.pack(
         '>' + ''.join(['d' for _ in range(2 * point_dim)]),
         *args
@@ -1190,7 +1246,7 @@ def rtree_read_indexfile(indexfile_name) -> Rtree:
         root_bb,
         dict(block_id_to_file_offset),
         first_args[5],
-        rtree_indexfile_offset
+        rtree_indexfile_offset[0]
     )
 
 
@@ -1198,15 +1254,135 @@ def rtree_read_indexfile(indexfile_name) -> Rtree:
 
 if __name__ == '__main__':
 
+    random.seed(1)
+
+    random_names = [
+        'ts teo',
+        'thanos the ripper',
+        'capybara',
+        'renika fantasy whore',
+        'black nigga',
+        'chiou binis',
+        'o kot re malaka',
+        'Mr bico'
+    ]
+
+    osm_read = osm_reader.GetNamesAndLocs()
+    osm_read.apply_file('C:\\Users\\User\\Documents++\\university\\'
+             'subjects\\databases_technologies\\\project\\map.osm')
+    
+    data = []
+    for i in range(1000):
+        data.append(
+            [
+                osm_read.ids[i], 
+                osm_read.lats[i], 
+                osm_read.lons[i], 
+                random_names[random.randint(0, len(random_names) - 1)]
+            ]
+        )
+    
+    datafile_name = 'C:\\Users\\User\\Documents++\\' \
+        'programming\\code\\database_technologies\\' \
+            'Database_Technologies_Assignment\\' \
+                'R_star_project\\datafile.bin'
+    
     indexfile_name = 'C:\\Users\\User\\Documents++\\' \
         'programming\\code\\database_technologies\\' \
             'Database_Technologies_Assignment\\' \
-                'R_star_project\\catalog_file.cat'
+                'R_star_project\\catalog_file.bin'
+    
     catalog: Rtree = Rtree(
         index_file_name=indexfile_name
     )
-    rtree_write_indexfile(catalog, indexfile_name)
-    catalog = None
-    catalog = rtree_read_indexfile(indexfile_name)
-    pass
+
+    current_data_block = Block_Datafile(
+        Block_Datafile.get_next_available_block_id(),
+        point_dim,
+        struct.calcsize(record_fmt_datafile)
+    )
+    datafile_blocks_offsets.append(offset_for_next_block)
+
+    offset_for_next_block = \
+        block_write_datafile(
+            current_data_block,
+            datafile_name,
+            offset=offset_for_next_block
+        )
     
+    for i in range(1000):
+
+        if current_data_block.is_full():
+
+            block_write_datafile(
+                current_data_block,
+                datafile_name,
+                offset=datafile_blocks_offsets[current_data_block.block_id]
+            )
+
+            del current_data_block
+
+            current_data_block = Block_Datafile(
+                Block_Datafile.get_next_available_block_id(),
+                point_dim,
+                struct.calcsize(record_fmt_datafile)
+            )
+
+            datafile_blocks_offsets.append(offset_for_next_block)
+
+            offset_for_next_block = block_write_datafile(
+                current_data_block,
+                datafile_name, 
+                offset=offset_for_next_block
+            )
+
+            new_record_id = current_data_block.add_record(
+                Record_Datafile(
+                    point_dim,
+                    current_data_block.get_next_available_record_id(),
+                    data[i][0],
+                    data[i][3],
+                    [data[i][1], data[i][2]]
+                )
+            )
+
+            catalog.insert_point(
+                [current_data_block.block_id, new_record_id],
+                [data[i][1], data[i][2]]
+            )
+
+        else:
+            new_record_id = current_data_block.add_record(
+                Record_Datafile(
+                    point_dim,
+                    current_data_block.get_next_available_record_id(),
+                    data[i][0],
+                    data[i][3],
+                    [data[i][1], data[i][2]]
+                )
+            )
+
+            catalog.insert_point(
+                [current_data_block.block_id, new_record_id],
+                [data[i][1], data[i][2]]
+            )
+
+    block_write_datafile(
+        current_data_block,
+        datafile_name,
+        offset=datafile_blocks_offsets[current_data_block.block_id]
+    )
+
+    rtree_write_indexfile(
+        catalog,
+        indexfile_name
+    )
+
+    first_datafile_block = None
+    catalog = None
+
+    catalog = rtree_read_indexfile(
+        indexfile_name
+    )
+
+    pass
