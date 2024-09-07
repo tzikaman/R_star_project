@@ -38,12 +38,19 @@ record_fmt_indexfile_leaf = '>III' + \
 
 
 
-
+# TODO : might consider removing altogether dim field from
+# TODO : Record_Indexfile class
 class Record_Datafile:
 
-    def __init__(self, dim: int, record_id: int = 0, 
-                 id: int = 0, name: str = 'aaaaaaaaaaaaaaa', 
-                 vec: list[float] = None):  
+    def __init__(
+            self, 
+            dim: int, 
+            record_id: int = 0, 
+            id: int = 0, 
+            name: str = 'aaaaaaaaaaaaaaa', 
+            vec: list[float] = None
+        ):  
+
         # TODO : search all differences between byte strings 
         # TODO : and strings in python, especially when it 
         # TODO : comes to character size, encoding and 
@@ -57,13 +64,18 @@ class Record_Datafile:
             else [0.0 for _ in range(dim)]
 
 
+# TODO : might consider removing altogether dim field from
+# TODO : Record_Indexfile class
 class Record_Indexfile:
 
-    def __init__(self, dim: int, 
-                 is_leaf: bool, 
-                 datafile_record_stored: int | list[int, int], 
-                 record_id: int = 0, 
-                 vec: list[float] = None):
+    def __init__(
+            self, 
+            dim: int, 
+            is_leaf: bool, 
+            datafile_record_stored: int | list[int, int], 
+            record_id: int = 0, 
+            vec: list[float] = None
+        ):
         # TODO : rename datafile_record_stored
         # datafile_record_stored will be either list or int, 
         # list when it refers to leaf node to hold block id and record id, 
@@ -136,7 +148,6 @@ class Block_Datafile:
         next_block_id = Block_Datafile.block_id_counter
         Block_Datafile.block_id_counter += 1
         return next_block_id
-
 
 
 
@@ -236,14 +247,12 @@ def block_write_indexfile(b: Block_Indexfile, indexfile_name, offset) -> int:
                 packed_record = struct.pack(record_fmt_indexfile_leaf, *args)
                 indexfile.write(packed_record)
             else:
-                args = [b.records[i].record_id, b.records[i].datafile_record_stored] 
-                + [(elem for elem in point) for point in b.records[i].vec]
-                #! double check that the above line works
+                args = [b.records[i].record_id, b.records[i].datafile_record_stored] + \
+                    [elem for point in b.records[i].vec for elem in point]
 
                 packed_record = struct.pack(record_fmt_indexfile_inner, *args)
                 indexfile.write(packed_record)
-        new_offset_for_next_block_to_enter = \
-        indexfile.tell()
+        new_offset_for_next_block_to_enter = indexfile.tell()
         indexfile.close()
         return new_offset_for_next_block_to_enter
 
@@ -364,7 +373,6 @@ def block_load_indexfile(indexfile_name, offset) -> Block_Indexfile:
 
 class Rtree:
 
-    # TODO : Constructor needs rewriting
     def __init__(self, 
             index_file_name,
             root_block_offset = None,
@@ -468,14 +476,25 @@ class Rtree:
         self.block_id_index_counter += 1
         return next_id
 
-    def _calculate_bb_size_increase(self, 
-                                is_leaf, 
-                                bounding_box, 
-                                inserted_point):
+    #! check that thing about forced reinsert and 
+    #! Rtree gaining height in the process, whether
+    #! entries will remember at what level they need
+    #! to enter
+
+    # TODO : check if it is safe to check target_level on an entry to be 
+    # TODO : inserted to the Rtree and compare it with Rtree height to 
+    # TODO : check whether current entry needs to enter in a leaf node 
+    # TODO : or in an inner node
+    def _calculate_bb_size_increase(
+            self, 
+            entry_is_leaf: bool, 
+            bounding_box, 
+            inserted_point
+        ):
         new_bb = []
         for i in range(point_dim):
             # TODO : consider rewriting below 'if block' as is 'else block'
-            if is_leaf:
+            if entry_is_leaf:
                 if inserted_point[i] >= bounding_box[i][0] and \
                     inserted_point[i] <= bounding_box[i][1]:
                     new_bb.append((bounding_box[i][0], bounding_box[i][1]))
@@ -486,11 +505,11 @@ class Rtree:
             else:
                 new_bb.append(
                     (
-                        inserted_point[i][0] if 
-                        inserted_point[i][0] < bounding_box[i][0] 
+                        inserted_point[i][0] 
+                        if inserted_point[i][0] < bounding_box[i][0] 
                         else bounding_box[i][0],
-                        inserted_point[i][1] if
-                        inserted_point[i][1] > bounding_box[i][1]
+                        inserted_point[i][1] 
+                        if inserted_point[i][1] > bounding_box[i][1]
                         else bounding_box[i][1]
                     )
                 )
@@ -506,9 +525,14 @@ class Rtree:
         return (area_new_bb - area_former_bb)
 
 
-    def _forced_reinsert(self, current_node: Block_Indexfile, bb, 
-                         overflow_element_datafile_record_stored, 
-                         overflow_element_coords, level):
+    def _forced_reinsert(
+            self, 
+            current_node: Block_Indexfile, 
+            bb, 
+            overflow_element_datafile_record_stored, 
+            overflow_element_coords, 
+            level
+        ):
         block_bb_center = [(elem[1] + elem[0]) / 2 for elem in bb]
         entry_with_distance = []
         # add overflow_element to the calculation
@@ -551,9 +575,11 @@ class Rtree:
         for i in range(current_node.size // 3):
             if entry_with_distance[i][0] == -1:
                 elements_for_reinsertion.append(
-                    (current_node.is_leaf,
-                     overflow_element_datafile_record_stored,
-                     overflow_element_coords)
+                    (
+                        current_node.is_leaf,
+                        overflow_element_datafile_record_stored,
+                        overflow_element_coords
+                    )
                 )
                 overflow_element_selected_for_reinsertion = True
             else:
@@ -561,9 +587,11 @@ class Rtree:
                 current_node.id_to_index[current_node.records[current_node.size - 1]
                                          .record_id] = pos
                 elements_for_reinsertion.append(
-                        (current_node.is_leaf, 
-                        current_node.records[pos].datafile_record_stored.copy(),
-                        copy.deepcopy(current_node.records[pos].vec))
+                        (
+                            current_node.is_leaf, 
+                            current_node.records[pos].datafile_record_stored.copy(),
+                            copy.deepcopy(current_node.records[pos].vec)
+                        )
                     )
                 # del current_node.records[pos] #!
                 current_node.records[pos] = \
@@ -573,7 +601,7 @@ class Rtree:
                         dim=point_dim, 
                         is_leaf=current_node.is_leaf, 
                         datafile_record_stored= [0, 0]
-                        if current_node.is_leaf else 0,
+                            if current_node.is_leaf else 0,
                         record_id=current_node
                         .give_next_available_record_id()
                     )
@@ -581,22 +609,23 @@ class Rtree:
         
         if not overflow_element_selected_for_reinsertion:
             current_node.add_record(
-                Record_Indexfile(point_dim,
-                        is_leaf=current_node.is_leaf,
-                        datafile_record_stored=\
-                            overflow_element_datafile_record_stored),
-                        record_id=current_node
+                Record_Indexfile(
+                    point_dim,
+                    is_leaf=current_node.is_leaf,
+                    datafile_record_stored=\
+                        overflow_element_datafile_record_stored,
+                    record_id=current_node
                         .give_next_available_record_id(),
-                        vec=overflow_element_coords
+                    vec=overflow_element_coords
+                )
             )
 
         # write updated block to storage
-        block_write_indexfile(current_node,
-                              self.index_file_name,
-                              self.block_id_to_file_offset[
-                                  current_node.block_id
-                              ]
-                            )
+        block_write_indexfile(
+            current_node,
+            self.index_file_name,
+            self.block_id_to_file_offset[current_node.block_id]
+        )
         
         # calculate new bounding box for node
         bb = []
@@ -635,9 +664,13 @@ class Rtree:
                     node_reference, inserted_coords):
         records = node_to_split.records.copy()
         records.append(
-            Record_Indexfile(dim=point_dim, is_leaf=node_to_split.is_leaf,
-                             datafile_record_stored=node_reference, 
-                             record_id=-1, vec=inserted_coords)
+            Record_Indexfile(
+                dim=point_dim, 
+                is_leaf=node_to_split.is_leaf,
+                datafile_record_stored=node_reference, 
+                record_id=-1, 
+                vec=inserted_coords
+            )
         )
         best_axis_to_split = None
         bb_values_for_best_axis = None
@@ -759,29 +792,48 @@ class Rtree:
         group_2 = records[(self.minimum_num_of_records - 1) + k : ]
         # creating first new block 
         # (updating old block)
+        node_to_split.size = 0
+        node_to_split.record_id_counter = 1
         node_to_split.id_to_index.clear()
         for i in range(node_to_split.max_num_of_records):
             if i < len(group_1):
-                #! change needs to happen here
-                node_to_split.records[i] = group_1[i]
-                node_to_split.id_to_index[group_1[i].record_id] = i
+                node_to_split.add_record(
+                    Record_Indexfile(
+                        point_dim,
+                        node_to_split.is_leaf,
+                        group_1[i].datafile_record_stored,
+                        node_to_split.give_next_available_record_id(),
+                        group_1[i].vec
+                    )
+                )
             else:
-                node_to_split.records[i] = Record_Indexfile(
-                    point_dim, node_to_split.is_leaf, 
-                    [0, 0] if node_to_split.is_leaf else 0)
-        node_to_split.size = len(group_1)
+                node_to_split.records[i] = \
+                    Record_Indexfile(
+                        point_dim, 
+                        node_to_split.is_leaf, 
+                        [0, 0] if node_to_split.is_leaf else 0
+                    )
         # creating second new block
         # (creating a new block)
         new_node: Block_Indexfile = \
-            Block_Indexfile(point_dim, node_to_split.is_leaf, 
-                            struct.calcsize(record_fmt_indexfile_leaf) \
-                            if node_to_split.is_leaf else
-                            struct.calcsize(record_fmt_indexfile_inner), 
-                            self._give_next_available_block_id()
-                            )
+            Block_Indexfile(
+                point_dim, 
+                node_to_split.is_leaf, 
+                struct.calcsize(record_fmt_indexfile_leaf)
+                    if node_to_split.is_leaf else
+                    struct.calcsize(record_fmt_indexfile_inner), 
+                self._give_next_available_block_id()
+            )
         for i in range(len(group_2)):
-            #! change needs to happen here
-            new_node.add_record(group_2[i])
+            new_node.add_record(
+                Record_Indexfile(
+                    point_dim,
+                    node_to_split.is_leaf,
+                    group_2[i].datafile_record_stored,
+                    new_node.give_next_available_record_id(),
+                    group_2[i].vec
+                )
+            )
         self.block_id_to_file_offset[new_node.block_id] = \
             self.offset_for_next_block_to_enter
         # write new blocks to storage
@@ -803,9 +855,15 @@ class Rtree:
 
     # TODO : See for proper memory management, see when you 
     # TODO : should pass references and when you should deep copy
-    def _insert_point_recurse(self, is_leaf, current_node: Block_Indexfile, 
-                              level, bb, node_reference, inserted_coords, 
-                              target_level):
+    def _insert_point_recurse(
+            self, 
+            current_node: Block_Indexfile, 
+            level, 
+            bb, 
+            node_reference, 
+            inserted_coords, 
+            target_level
+        ):
 
         if level==target_level:
             if current_node.size == current_node.max_num_of_records:
@@ -877,8 +935,11 @@ class Rtree:
         minimum_increased_entry: tuple[int, float] | None = None
 
         for i in range(current_node.size):
-            current_entry_size_increase = self._calculate_bb_size_increase(
-                is_leaf, current_node.records[i].vec, inserted_coords
+            current_entry_size_increase = \
+                self._calculate_bb_size_increase(
+                    target_level == self.height - 1, 
+                    current_node.records[i].vec, 
+                    inserted_coords
                 )
             if minimum_increased_entry is None:
                 minimum_increased_entry = (i, current_entry_size_increase)
@@ -897,10 +958,14 @@ class Rtree:
                     )
 
         blocks_update_with_bbs = \
-        self._insert_point_recurse(is_leaf, new_block_fetched, level + 1, 
-                        current_node.records[minimum_increased_entry[0]].vec, 
-                        node_reference, inserted_coords, target_level
-                        )
+            self._insert_point_recurse(
+                new_block_fetched, 
+                level + 1, 
+                current_node.records[minimum_increased_entry[0]].vec, 
+                node_reference, 
+                inserted_coords, 
+                target_level
+            )
         if blocks_update_with_bbs is None:
             # bb of node below didn't change, so no changes
             # are propagated upwards
@@ -934,11 +999,14 @@ class Rtree:
 
                 # performing an insertion for each 
                 # selected element
+                #! _insert_point doesn't have is_leaf parameter
                 for element_to_reinsert in blocks_update_with_bbs[1]:
-                    self._insert_point(is_leaf=element_to_reinsert[0], 
-                                       node_reference=element_to_reinsert[1], 
-                                       inserted_coords=element_to_reinsert[2], 
-                                       target_level=level + 1)
+                    self._insert_point(
+                        is_leaf=element_to_reinsert[0], 
+                        node_reference=element_to_reinsert[1], 
+                        inserted_coords=element_to_reinsert[2], 
+                        target_level=level + 1
+                    )
                     
                 # ending all previous recursive calls
                 # regarding the insertion of current 
@@ -1070,14 +1138,14 @@ class Rtree:
 
         # current_node: Block_Indexfile = self.root
 
-        result = self._insert_point_recurse(self.root.is_leaf, 
-                                   self.root, 
-                                   level=0, 
-                                   bb=self.root_bounding_box,
-                                   node_reference=node_reference,
-                                   inserted_coords=inserted_coords, 
-                                   target_level=target_level
-                                )
+        result = self._insert_point_recurse(
+            self.root, 
+            level=0, 
+            bb=self.root_bounding_box,
+            node_reference=node_reference,
+            inserted_coords=inserted_coords, 
+            target_level=target_level
+        )
 
         if result is None:
             # no futher change needs to happen
@@ -1087,7 +1155,7 @@ class Rtree:
             self.root = Block_Indexfile(
                 point_dim,
                 is_leaf=False,
-                size_of_records= \
+                size_of_record= \
                     struct.calcsize(record_fmt_indexfile_inner),
                 block_id=self._give_next_available_block_id()
             )
