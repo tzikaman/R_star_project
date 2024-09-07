@@ -628,6 +628,9 @@ class Rtree:
             
 
     # split node algorithm
+    #! TODO : when the record containing the new element to add to
+    #! TODO : the Rtree is about to enter its final block, the record
+    #! TODO : id must be reassigned a valid record id
     def _split_node(self, node_to_split: Block_Indexfile, 
                     node_reference, inserted_coords):
         records = node_to_split.records.copy()
@@ -661,17 +664,17 @@ class Rtree:
                             min_for_dim = group_1[0].vec[j][0]
                             max_for_dim = group_1[0].vec[j][1]
                         
-                        for i in range(1, len(group_1)):
+                        for p in range(1, len(group_1)):
                             if node_to_split.is_leaf:
-                                if group_1[i].vec[j] < min_for_dim:
-                                    min_for_dim = group_1[i].vec[j]
-                                elif group_1[i].vec[j] > max_for_dim:
-                                    max_for_dim = group_1[i].vec[j]                            
+                                if group_1[p].vec[j] < min_for_dim:
+                                    min_for_dim = group_1[p].vec[j]
+                                elif group_1[p].vec[j] > max_for_dim:
+                                    max_for_dim = group_1[p].vec[j]                            
                             else:
-                                if group_1[i].vec[j][0] < min_for_dim:
-                                    min_for_dim = group_1[i].vec[j][0]
-                                if group_1[i].vec[j][1] > max_for_dim:
-                                    max_for_dim = group_1[i].vec[j][1]
+                                if group_1[p].vec[j][0] < min_for_dim:
+                                    min_for_dim = group_1[p].vec[j][0]
+                                if group_1[p].vec[j][1] > max_for_dim:
+                                    max_for_dim = group_1[p].vec[j][1]
                         bb_for_group1.append((min_for_dim, max_for_dim))
                     bb_for_group2 = []
                     for j in range(point_dim):
@@ -682,17 +685,17 @@ class Rtree:
                             min_for_dim = group_2[0].vec[j][0]
                             max_for_dim = group_2[0].vec[j][1]
                         
-                        for i in range(1, len(group_2)):
+                        for p in range(1, len(group_2)):
                             if node_to_split.is_leaf:
-                                if group_2[i].vec[j] < min_for_dim:
-                                    min_for_dim = group_2[i].vec[j]
-                                elif group_2[i].vec[j] > max_for_dim:
-                                    max_for_dim = group_2[i].vec[j]                            
+                                if group_2[p].vec[j] < min_for_dim:
+                                    min_for_dim = group_2[p].vec[j]
+                                elif group_2[p].vec[j] > max_for_dim:
+                                    max_for_dim = group_2[p].vec[j]                            
                             else:
-                                if group_2[i].vec[j][0] < min_for_dim:
-                                    min_for_dim = group_2[i].vec[j][0]
-                                if group_2[i].vec[j][1] > max_for_dim:
-                                    max_for_dim = group_2[i].vec[j][1]
+                                if group_2[p].vec[j][0] < min_for_dim:
+                                    min_for_dim = group_2[p].vec[j][0]
+                                if group_2[p].vec[j][1] > max_for_dim:
+                                    max_for_dim = group_2[p].vec[j][1]
                         bb_for_group2.append((min_for_dim, max_for_dim))
                     bb_values_for_different_distros.append(
                         (bb_for_group1, bb_for_group2)
@@ -713,25 +716,25 @@ class Rtree:
         for e in range(len(bb_values_for_best_axis)):
             # find bb overlap between the two groups
             current_overlap = 1.0
-            for i in range(point_dim):
+            for k in range(point_dim):
                 # check if there is overlap
-                if bb_values_for_best_axis[e][0][i][0] >= \
-                    bb_values_for_best_axis[e][1][i][1] \
-                    or bb_values_for_best_axis[e][1][i][0] >= \
-                        bb_values_for_best_axis[e][0][i][1]:
+                if bb_values_for_best_axis[e][0][k][0] >= \
+                    bb_values_for_best_axis[e][1][k][1] \
+                    or bb_values_for_best_axis[e][1][k][0] >= \
+                        bb_values_for_best_axis[e][0][k][1]:
                     # no overlap
                     current_overlap = 0.0
                     break
                 else:
                     # gradually calculate overlapping hypervolume
-                    current_overlap *= (bb_values_for_best_axis[e][0][i][1] if 
-                        bb_values_for_best_axis[e][0][i][1] < 
-                        bb_values_for_best_axis[e][1][i][1] 
-                        else bb_values_for_best_axis[e][1][i][1]) - \
-                        (bb_values_for_best_axis[e][0][i][0] 
-                        if bb_values_for_best_axis[e][0][i][0] > \
-                        bb_values_for_best_axis[e][1][i][0] 
-                        else bb_values_for_best_axis[e][1][i][0])
+                    current_overlap *= (bb_values_for_best_axis[e][0][k][1] if 
+                        bb_values_for_best_axis[e][0][k][1] < 
+                        bb_values_for_best_axis[e][1][k][1] 
+                        else bb_values_for_best_axis[e][1][k][1]) - \
+                        (bb_values_for_best_axis[e][0][k][0] 
+                        if bb_values_for_best_axis[e][0][k][0] > \
+                        bb_values_for_best_axis[e][1][k][0] 
+                        else bb_values_for_best_axis[e][1][k][0])
             # check if newly calculated overlap volume is smaller
             if minimum_overlap is None:
                 minimum_overlap = (e, current_overlap)
@@ -759,6 +762,7 @@ class Rtree:
         node_to_split.id_to_index.clear()
         for i in range(node_to_split.max_num_of_records):
             if i < len(group_1):
+                #! change needs to happen here
                 node_to_split.records[i] = group_1[i]
                 node_to_split.id_to_index[group_1[i].record_id] = i
             else:
@@ -776,6 +780,7 @@ class Rtree:
                             self._give_next_available_block_id()
                             )
         for i in range(len(group_2)):
+            #! change needs to happen here
             new_node.add_record(group_2[i])
         self.block_id_to_file_offset[new_node.block_id] = \
             self.offset_for_next_block_to_enter
@@ -1256,6 +1261,8 @@ if __name__ == '__main__':
 
     random.seed(1)
 
+    elements_to_insert = 2000
+
     random_names = [
         'ts teo',
         'thanos the ripper',
@@ -1272,7 +1279,7 @@ if __name__ == '__main__':
              'subjects\\databases_technologies\\\project\\map.osm')
     
     data = []
-    for i in range(1000):
+    for i in range(elements_to_insert):
         data.append(
             [
                 osm_read.ids[i], 
@@ -1292,6 +1299,14 @@ if __name__ == '__main__':
             'Database_Technologies_Assignment\\' \
                 'R_star_project\\catalog_file.bin'
     
+    datafile = open(datafile_name, 'w')
+    datafile.close()
+    del datafile
+
+    indexfile = open(indexfile_name, 'w')
+    indexfile.close()
+    del indexfile
+    
     catalog: Rtree = Rtree(
         index_file_name=indexfile_name
     )
@@ -1310,7 +1325,12 @@ if __name__ == '__main__':
             offset=offset_for_next_block
         )
     
-    for i in range(1000):
+    for i in range(elements_to_insert):
+
+        #! debug start
+        if i == 1170:
+            pass
+        #! debug end
 
         if current_data_block.is_full():
 
