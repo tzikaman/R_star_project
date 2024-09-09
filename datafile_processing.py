@@ -530,8 +530,7 @@ class Rtree:
             current_node: Block_Indexfile, 
             bb, 
             overflow_element_datafile_record_stored, 
-            overflow_element_coords, 
-            level
+            overflow_element_coords
         ):
         block_bb_center = [(elem[1] + elem[0]) / 2 for elem in bb]
         entry_with_distance = []
@@ -660,8 +659,12 @@ class Rtree:
     #! TODO : when the record containing the new element to add to
     #! TODO : the Rtree is about to enter its final block, the record
     #! TODO : id must be reassigned a valid record id
-    def _split_node(self, node_to_split: Block_Indexfile, 
-                    node_reference, inserted_coords):
+    def _split_node(
+            self, 
+            node_to_split: Block_Indexfile, 
+            node_reference, 
+            inserted_coords
+        ):
         records = node_to_split.records.copy()
         records.append(
             Record_Indexfile(
@@ -867,7 +870,7 @@ class Rtree:
 
         if level==target_level:
             if current_node.size == current_node.max_num_of_records:
-                if level == 1 and self.forced_reinsert_enable:
+                if level == (self.height - 2) and self.forced_reinsert_enable:
                     self.forced_reinsert_enable = False
                     result = \
                         self._forced_reinsert(
@@ -883,10 +886,11 @@ class Rtree:
                     if current_node.is_leaf:
                         self.num_of_leaves += 1
                     new_blocks_with_bbs = \
-                    self._split_node(current_node, 
-                                     node_reference, 
-                                     inserted_coords
-                                     )
+                    self._split_node(
+                        current_node, 
+                        node_reference, 
+                        inserted_coords
+                    )
                     self.num_of_blocks += 1
                     return new_blocks_with_bbs
             else:
@@ -937,7 +941,7 @@ class Rtree:
         for i in range(current_node.size):
             current_entry_size_increase = \
                 self._calculate_bb_size_increase(
-                    target_level == self.height - 1, 
+                    not target_level, 
                     current_node.records[i].vec, 
                     inserted_coords
                 )
@@ -950,17 +954,18 @@ class Rtree:
                     pass # TODO : calculate smallest rectangle in case increase is the same
 
         new_block_fetched: Block_Indexfile = \
-            block_load_indexfile(self.index_file_name, 
-                    self.block_id_to_file_offset[
-                        current_node.records[minimum_increased_entry[0]]
-                        .datafile_record_stored
-                     ]
-                    )
+            block_load_indexfile(
+                self.index_file_name, 
+                self.block_id_to_file_offset[
+                    current_node.records[minimum_increased_entry[0]]
+                    .datafile_record_stored
+                ]
+            )
 
         blocks_update_with_bbs = \
             self._insert_point_recurse(
                 new_block_fetched, 
-                level + 1, 
+                level - 1, 
                 current_node.records[minimum_increased_entry[0]].vec, 
                 node_reference, 
                 inserted_coords, 
@@ -1002,10 +1007,9 @@ class Rtree:
                 #! _insert_point doesn't have is_leaf parameter
                 for element_to_reinsert in blocks_update_with_bbs[1]:
                     self._insert_point(
-                        is_leaf=element_to_reinsert[0], 
                         node_reference=element_to_reinsert[1], 
                         inserted_coords=element_to_reinsert[2], 
-                        target_level=level + 1
+                        target_level=level - 1
                     )
                     
                 # ending all previous recursive calls
@@ -1130,22 +1134,17 @@ class Rtree:
     # bounding box
     # @param target_level is the level in the Rtree where the insertion will 
     # happen, default value is the leaves level
-    def _insert_point(self, node_reference, inserted_coords, target_level=None):
+    def _insert_point(self, node_reference, inserted_coords, target_level=0):
 
-        # default value
-        if target_level is None:
-            target_level = self.height - 1
-
-        # current_node: Block_Indexfile = self.root
-
-        result = self._insert_point_recurse(
-            self.root, 
-            level=0, 
-            bb=self.root_bounding_box,
-            node_reference=node_reference,
-            inserted_coords=inserted_coords, 
-            target_level=target_level
-        )
+        result = \
+            self._insert_point_recurse(
+                self.root, 
+                self.height - 1, 
+                self.root_bounding_box,
+                node_reference,
+                inserted_coords, 
+                target_level
+            )
 
         if result is None:
             # no futher change needs to happen
