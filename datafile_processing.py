@@ -25,10 +25,12 @@ block_size = 2**15
 
 # TODO : check that the formats below are still
 # TODO : valid
+#! Some formats are given as a string literal at places 
+#! in the code, check for these too
 rtree_fmt = '>IIIIIII?'
 block_fmt_datafile = '>IIII'
 block_fmt_indexfile = '>I?'
-record_fmt_datafile = '>II30s' + \
+record_fmt_datafile = '>IQ30s' + \
     ''.join(['d' for _ in range(point_dim)])
 record_fmt_indexfile_inner = '>II' + \
     ''.join(['d' for _ in range(2 * point_dim)])
@@ -630,12 +632,12 @@ class Rtree:
         bb = []
         for i in range(point_dim):
             bb.append(
-                (current_node.records[0].vec[i]
+                [current_node.records[0].vec[i]
                  if current_node.is_leaf else
                  current_node.records[0].vec[i][0],
                  current_node.records[0].vec[i]
                  if current_node.is_leaf else
-                 current_node.records[0].vec[i][1])
+                 current_node.records[0].vec[i][1]]
             )
             for j in range(1, current_node.size):
                 if current_node.is_leaf:
@@ -711,7 +713,7 @@ class Rtree:
                                     min_for_dim = group_1[p].vec[j][0]
                                 if group_1[p].vec[j][1] > max_for_dim:
                                     max_for_dim = group_1[p].vec[j][1]
-                        bb_for_group1.append((min_for_dim, max_for_dim))
+                        bb_for_group1.append([min_for_dim, max_for_dim])
                     bb_for_group2 = []
                     for j in range(point_dim):
                         if node_to_split.is_leaf:
@@ -732,9 +734,9 @@ class Rtree:
                                     min_for_dim = group_2[p].vec[j][0]
                                 if group_2[p].vec[j][1] > max_for_dim:
                                     max_for_dim = group_2[p].vec[j][1]
-                        bb_for_group2.append((min_for_dim, max_for_dim))
+                        bb_for_group2.append([min_for_dim, max_for_dim])
                     bb_values_for_different_distros.append(
-                        (bb_for_group1, bb_for_group2)
+                        [bb_for_group1, bb_for_group2]
                     )
                     for entry in bb_for_group1:
                         margin_score_for_axis += entry[1] - entry[0]
@@ -877,8 +879,7 @@ class Rtree:
                             current_node,
                             bb,
                             node_reference,
-                            inserted_coords,
-                            level
+                            inserted_coords
                         )
                     return result
                 else:
@@ -1035,8 +1036,7 @@ class Rtree:
                             current_node, 
                             bb, 
                             blocks_update_with_bbs[1][0], 
-                            blocks_update_with_bbs[1][1], 
-                            level
+                            blocks_update_with_bbs[1][1]
                         )
                     else:
                         if current_node.is_leaf:
@@ -1193,12 +1193,12 @@ class Rtree:
             self.root_bounding_box = []
             for i in range(point_dim):
                 self.root_bounding_box.append(
-                    (result[0][1][i][0] 
+                    [result[0][1][i][0] 
                      if result[0][1][i][0] < result[1][1][i][0]
                      else result[1][1][i][0],
                      result[0][1][i][1]
                      if result[0][1][i][1] > result[1][1][i][1]
-                     else result[1][1][i][1])
+                     else result[1][1][i][1]]
                 )
             self.forced_reinsert_enable = True
             self.num_of_blocks += 1
@@ -1210,6 +1210,107 @@ class Rtree:
 
     def insert_point(self, node_reference, inserted_coords):
         self._insert_point(node_reference, inserted_coords)
+
+
+    # method checks if @param rectangle contains @param point
+    # @param rectangle is a list of point_dim elements that are
+    # lists of two elements
+    # @param point is a list of point_dim elements that are the 
+    # coordinates of the point
+    def _rectangle_contains_point(
+            point: list,
+            rectangle: list
+        ) -> bool:
+
+        for i_dim in range(point_dim):
+
+            if point[i_dim] < rectangle[i_dim][0] or \
+            point[i_dim] > rectangle[i_dim][1]:
+                return False
+            
+        return True
+
+
+    # method receives 2 rectangles in @global_var point_dim dimension
+    # and checks whether they are intersecting each other
+    def _rectangles_intersect(
+            rectangle1: list,
+            rectangle2: list
+        ) -> bool:
+        
+        for i_dim in range(point_dim):
+
+            if rectangle1[i_dim][1] < rectangle2[i_dim][0] or \
+            rectangle1[i_dim][0] > rectangle2[i_dim][1]:
+                return False
+            
+        return True
+
+
+    # range query in the Rtree
+    # @param area is a list containing point_dim lists that each 
+    # contain 2 elements that are the lower and upper value of that dimension
+    def range_query(
+            self,
+            area: list
+        ) -> list:
+
+        # this will contain all points found in range
+        result = []
+
+        # this is the list that contains all nodes left to check, it is a list whose 
+        # elements are block ids of nodes that remain to be checked
+        nodes_to_check = [self.root.block_id]
+        current_node: Block_Indexfile | None = None
+
+        while nodes_to_check:
+
+            current_node_to_check = nodes_to_check.pop()
+
+            # when current node is the root, no need to load it
+            if current_node_to_check[0] != self.root.block_id:
+
+                # load node
+                current_node = block_load_indexfile(
+                    self.index_file_name, 
+                    self.block_id_to_file_offset[current_node_to_check[0]]
+                )
+            else:
+                current_node = self.root
+
+            # check whether current node is leaf node
+            if current_node.is_leaf:
+                
+                # check if any of the points contained in current node
+                # are inside the query area
+                for i_bl in range(current_node.size):
+                    if self._rectangle_contains_point(
+                        current_node.records[i_bl].vec,
+                        area
+                    ):
+                        result.append(
+                            current_node.records[i_bl].datafile_record_stored
+                        )
+
+            else:
+                
+                # check which entries (that are bounding boxes for below nodes)
+                # intersect with query range
+                for i_bl in range(current_node.size):
+                    if self._rectangles_intersect(
+                        current_node.records[i_bl].vec,
+                        area
+                    ):
+                        nodes_to_check.append(
+                            current_node.records[i_bl].datafile_record_stored
+                        )
+
+            # just to make clear that block is no longer needed in 
+            # main memory
+            del current_node
+
+        return result
+
 
     def remove_point(self, record: Record_Datafile):
         pass
@@ -1247,7 +1348,7 @@ def rtree_write_indexfile(rtree: Rtree, indexfile_name):
     indexfile.write(packed)
     for k, v in rtree.block_id_to_file_offset.items():
         packed = struct.pack(
-            '>II',
+            '>IQ',
             k, v
         )
         indexfile.write(packed)
@@ -1297,10 +1398,10 @@ def rtree_read_indexfile(indexfile_name) -> Rtree:
     for _ in range(first_args[0]):
         block_id_to_file_offset.append(
             struct.unpack(
-                '>II',
+                '>IQ',
                 indexfile.read(
                     struct.calcsize(
-                        '>II'
+                        '>IQ'
                     )
                 )
             )
@@ -1340,10 +1441,10 @@ if __name__ == '__main__':
         'o kot re malaka',
         'Mr bico'
     ]
-
     osm_read = osm_reader.GetNamesAndLocs()
     osm_read.apply_file('C:\\Users\\User\\Documents++\\university\\'
              'subjects\\databases_technologies\\\project\\map.osm')
+    elements_to_insert = len(osm_read.ids)
     
     data = []
     for i in range(elements_to_insert):
@@ -1395,7 +1496,7 @@ if __name__ == '__main__':
     for i in range(elements_to_insert):
 
         #! debug start
-        if i == 1170:
+        if i == 2527:
             pass
         #! debug end
 
