@@ -1427,23 +1427,29 @@ def rtree_read_indexfile(indexfile_name) -> Rtree:
 
 if __name__ == '__main__':
 
+    # full path to osm file
+    osm_path = ''
+    # full path to datafile
+    datafile_name = ''
+    # full path to indexfile
+    indexfile_name = ''
+
     random.seed(1)
 
     elements_to_insert = 2000
 
     random_names = [
-        'ts teo',
-        'thanos the ripper',
-        'capybara',
-        'renika fantasy whore',
-        'black nigga',
-        'chiou binis',
-        'o kot re malaka',
-        'Mr bico'
+        'name 1',
+        'name 2',
+        'name 3',
+        'name 4',
+        'name 5',
+        'name 6',
+        'name 7',
+        'name 8'
     ]
     osm_read = osm_reader.GetNamesAndLocs()
-    osm_read.apply_file('C:\\Users\\User\\Documents++\\university\\'
-             'subjects\\databases_technologies\\\project\\map.osm')
+    osm_read.apply_file(osm_path)
     elements_to_insert = len(osm_read.ids)
     
     data = []
@@ -1456,16 +1462,6 @@ if __name__ == '__main__':
                 random_names[random.randint(0, len(random_names) - 1)]
             ]
         )
-    
-    datafile_name = 'C:\\Users\\User\\Documents++\\' \
-        'programming\\code\\database_technologies\\' \
-            'Database_Technologies_Assignment\\' \
-                'R_star_project\\datafile.bin'
-    
-    indexfile_name = 'C:\\Users\\User\\Documents++\\' \
-        'programming\\code\\database_technologies\\' \
-            'Database_Technologies_Assignment\\' \
-                'R_star_project\\catalog_file.bin'
     
     datafile = open(datafile_name, 'w')
     datafile.close()
