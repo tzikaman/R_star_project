@@ -4,7 +4,7 @@ class GetNamesAndLocs(osmium.SimpleHandler):
     
     def __init__(self):
         osmium.SimpleHandler.__init__(self)
-        self.ids = []
+        self.ids  = []
         self.lats = []
         self.lons = []
         
