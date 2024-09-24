@@ -48,6 +48,12 @@ class Block_Datafile:
         self.id_to_index: dict = dict()
         self.record_id_counter = record_id_counter
 
+    def __str__(self):
+        return"BLOCK ID: " + str(self.block_id) + \
+              " block_size: " + str(self.block_size) + \
+              " max_records: " + str(self.max_num_of_records)  + \
+              " size: " + str(self.size) + str([r.record_id for r in self.records])
+
     def is_full(self):
         return self.size == self.max_num_of_records
 
@@ -60,18 +66,21 @@ class Block_Datafile:
             self.size += 1
             return r.record_id
 
-    def remove_record(self, record_id: int):
+    def remove_record(self, r_id_for_removal: int):
 
         # if the record exists in the dictionary delete it and reform the records[] and the dictionary
-        if record_id in self.id_to_index:
-            i = self.id_to_index[record_id] # maybe rename i to something more informative
+        if r_id_for_removal in self.id_to_index:
+            pos_in_records = self.id_to_index[r_id_for_removal]
 
+            last_element = self.records[self.size - 1]
             # put the last element of the records array to the place of the element you want to remove and replace the last element with a dummy
-            self.records[i] = self.records[self.size - 1]
+            self.records[pos_in_records] = last_element
             self.records[self.size - 1] = Record_Datafile(point_dim)
             self.size -= 1
-            del self.id_to_index[record_id] # deleted element is deleted also from the dict but the last element that
-                                            # was relocated has the same dict value
+
+            # Delete the record from the dictionary and update the "last" element
+            self.id_to_index[last_element.record_id] = self.id_to_index.pop(r_id_for_removal)            
+            
 
     def get_next_available_record_id(self):
         next_record_id = self.record_id_counter
@@ -83,4 +92,4 @@ class Block_Datafile:
     def get_next_available_block_id():
         next_block_id = Block_Datafile.block_id_counter
         Block_Datafile.block_id_counter += 1
-        return next_block_id
+        return next_block_id 

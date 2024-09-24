@@ -67,7 +67,7 @@ def block_write_datafile(b: Block_Datafile, datafile_name, offset):
 
         new_offset_for_next_block = datafile.tell()
 
-        datafile.close() # redundant as "with" block ensures it
+        datafile.flush() # redundant as "with" block ensures it
 
         return new_offset_for_next_block
 
@@ -99,7 +99,7 @@ def block_write_indexfile(b: Block_Indexfile, indexfile_name, offset) -> int:
                 indexfile.write(packed_record)
         new_offset_for_next_block_to_enter = indexfile.tell()
 
-        indexfile.close()
+        indexfile.flush()
         
         return new_offset_for_next_block_to_enter
 
