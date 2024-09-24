@@ -72,11 +72,28 @@ class Block_Indexfile:
             self.id_to_index[r.record_id] = self.size
             self.size += 1
 
-    def remove_record(self, record_id: int):
+    # def remove_record(self, record_id: int):
 
-        if record_id in self.id_to_index:
-            i = self.id_to_index[record_id]
-            self.records[i] = self.records[self.size - 1]
+    #     if record_id in self.id_to_index:
+    #         i = self.id_to_index[record_id]
+
+    #         self.records[i] = self.records[self.size - 1]
+    #         self.records[self.size - 1] = Record_Indexfile(point_dim)
+    #         self.size -= 1
+    #         del self.id_to_index[record_id]
+
+
+    def remove_record(self, r_id_for_removal: int):
+
+        # if the record exists in the dictionary delete it and reform the records[] and the dictionary
+        if r_id_for_removal in self.id_to_index:
+            pos_in_records = self.id_to_index[r_id_for_removal]
+            last_element = self.records[self.size - 1]
+            
+            # put the last element of the records array to the place of the element you want to remove and replace the last element with a dummy
+            self.records[pos_in_records] = last_element
             self.records[self.size - 1] = Record_Indexfile(point_dim)
             self.size -= 1
-            del self.id_to_index[record_id]
+
+            # Delete the record from the dictionary and update the "last" element
+            self.id_to_index[last_element.record_id] = self.id_to_index.pop(r_id_for_removal)

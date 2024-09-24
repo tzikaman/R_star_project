@@ -1,3 +1,6 @@
+import sys
+
+import numpy as np
 from datafile_management import Block_Datafile
 from datafile_management import Record_Datafile
 
@@ -81,21 +84,32 @@ if __name__ == '__main__':
     osm_read = osm_reader.GetNamesAndLocs()
     osm_read.apply_file(osm_path)
     #elements_to_insert = len(osm_read.ids)
-    elements_to_insert = 20
+    #elements_to_insert = 20
     
     
-    data = []
+    data = osm_read.get_data()
     
+
+    elements_to_insert = data.shape[0]
+
+    
+    names = []
     for i in range(elements_to_insert):
-        data.append(
-            [
-                osm_read.ids[i], 
-                osm_read.lats[i], 
-                osm_read.lons[i], 
-                random_names[random.randint(0, len(random_names) - 1)]
-            ]
+        names.append(
+
+            random_names[random.randint(0, len(random_names) - 1)]
+            
         )
     
+    np_names = np.array(names)
+
+    final = np.column_stack((data,np_names))
+    
+    
+    
+ 
+
+
     datafile = open(datafile_name, 'w')
     datafile.close()
     del datafile
@@ -118,10 +132,12 @@ if __name__ == '__main__':
             offset=offset_for_next_block
         )
     
-
+    import time
+    start = time.time()
     # Inserting elements one by one takes 2 sec for 100 insertions = 20 ms for each insertion
     for i in range(elements_to_insert):
-
+        if i%100 == 0 :
+            print(i)
 
         if current_data_block.is_full():
 
@@ -147,28 +163,30 @@ if __name__ == '__main__':
                 offset=offset_for_next_block
             )
 
-            insert_point(data[i])
+            insert_point(final[i])
 
         else:
 
-            insert_point(data[i])
+            insert_point(final[i])
+    end = time.time()
+    print(f"Elapsed time: {end-start:.6f} seconds")
 
     
-    current_data_block.remove_record(15)
-    print(current_data_block.id_to_index)
+    # current_data_block.remove_record(15)
+    # print(current_data_block.id_to_index)
 
-    block_write_datafile(
-        current_data_block,
-        datafile_name,
-        offset=datafile_blocks_offsets[current_data_block.block_id]
-    )
+    # block_write_datafile(
+    #     current_data_block,
+    #     datafile_name,
+    #     offset=datafile_blocks_offsets[current_data_block.block_id]
+    # )
 
-    print(datafile_blocks_offsets)
-    for offset in datafile_blocks_offsets:
+    # print(datafile_blocks_offsets)
+    # for offset in datafile_blocks_offsets:
         
-        b: Block_Datafile = block_load_datafile(datafile_name,offset)
-        print(b)
-        print(b.id_to_index)
-        del b
+    #     b: Block_Datafile = block_load_datafile(datafile_name,offset)
+    #     print(b)
+    #     print(b.id_to_index)
+    #     del b
 
     pass

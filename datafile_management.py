@@ -71,8 +71,8 @@ class Block_Datafile:
         # if the record exists in the dictionary delete it and reform the records[] and the dictionary
         if r_id_for_removal in self.id_to_index:
             pos_in_records = self.id_to_index[r_id_for_removal]
-
             last_element = self.records[self.size - 1]
+            
             # put the last element of the records array to the place of the element you want to remove and replace the last element with a dummy
             self.records[pos_in_records] = last_element
             self.records[self.size - 1] = Record_Datafile(point_dim)
