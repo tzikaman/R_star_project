@@ -86,6 +86,12 @@ class Block_Datafile:
         next_record_id = self.record_id_counter
         self.record_id_counter += 1
         return next_record_id
+    
+    def get_record(self, r_id: int) -> Record_Datafile:
+        record_index = self.id_to_index(r_id)
+        record = self.records[record_index]
+
+        return record
 
     @staticmethod # it's static because you can access it even if you dont have any instances of the of the object 
                   # in the beggining it will give you 0 to create your first object

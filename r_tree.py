@@ -2,6 +2,7 @@ from file_management import *
 
 import math
 import copy
+import heapq
 
 point_dim = 2
 
@@ -27,15 +28,20 @@ class Rtree:
         self.num_of_blocks = num_of_blocks
         self.num_of_leaves = num_of_leaves
         self.height = height
+
+        #init the bb of the root but if not given put some placeholder values
         if root_bounding_box is None:
             self.root_bounding_box = \
                 [[float_info.max, -float_info.max] for _ in range(point_dim)]
         else:
             self.root_bounding_box = root_bounding_box
+
         # TODO : Check if can gauge height of Tree 
         # TODO : based on number of nodes it has
+
         self.block_id_to_file_offset = \
             block_id_to_file_offset
+        
         # TODO : Consider depending on how the block 
         # TODO : id would work if the dict could be changed to a list
         self.block_id_index_counter = \
@@ -90,12 +96,16 @@ class Rtree:
             block_load_indexfile(self.index_file_name,
                                  root_block_offset)
             
-        if maximum_num_of_records is None:          
+        # The M parameter is the maximum number of records a block can hold
+        # unless specified otherwise
+        if maximum_num_of_records is None:
             self.maximum_num_of_records = \
                 self.root.max_num_of_records
         else:
             self.maximum_num_of_records = \
                 maximum_num_of_records
+            
+        # The m parameter 40% of the max number of records -> but i think it should be 50% 
         if minimum_num_of_records is None:
             self.minimum_num_of_records = \
                 math.floor(0.4 * self.maximum_num_of_records)
@@ -125,17 +135,20 @@ class Rtree:
             inserted_point
         ):
         new_bb = []
+        # For each dimension
         for i in range(point_dim):
             # TODO : consider rewriting below 'if block' as is 'else block'
             if entry_is_leaf:
-                if inserted_point[i] >= bounding_box[i][0] and \
-                    inserted_point[i] <= bounding_box[i][1]:
+                if inserted_point[i] >= bounding_box[i][0] \
+                          and inserted_point[i] <= bounding_box[i][1]:
                     new_bb.append((bounding_box[i][0], bounding_box[i][1]))
                 elif inserted_point[i] < bounding_box[i][0]:
                     new_bb.append((inserted_point[i], bounding_box[i][1]))
                 else:
                     new_bb.append((bounding_box[i][0], inserted_point[i]))
-            else:
+
+            else: # I dont understand what the diff will be if the entry is leaf or not
+                  # and also I dont think inserted_point[i][j] is a valid command
                 new_bb.append(
                     (
                         inserted_point[i][0] 
@@ -753,20 +766,24 @@ class Rtree:
                 return None
 
 
-        
-        
-
-
-    # @param is_leaf is True if inserted element is a bounding box or a 
-    # point
-    # @param inserted_point is an int or a tuple[int|int] that contains reference 
-    # to block below or to datafile record block (blockid and recordid) 
-    # @param inserted_coords is either the point to be inserted or coords of a 
-    # bounding box
-    # @param target_level is the level in the Rtree where the insertion will 
-    # happen, default value is the leaves level
+    
     def _insert_point(self, node_reference, inserted_coords, target_level=0):
+        """
+        Inserts an element into the R-tree.
 
+        :param is_leaf: 
+            True if the inserted element is a bounding box or a point.
+        :type is_leaf: bool
+        :param inserted_point: 
+            An int or a tuple[int, int] that contains a reference to the block below or to a datafile record block (block ID and record ID).
+        :type inserted_point: int or tuple[int, int]
+        :param inserted_coords: 
+            The point to be inserted or the coordinates of a bounding box.
+        :type inserted_coords: tuple[float, float] or tuple[tuple[float, float], tuple[float, float]]
+        :param target_level: 
+            The level in the R-tree where the insertion will happen. The default value is the leaves level.
+        :type target_level: int, optional
+        """
         result = \
             self._insert_point_recurse(
                 self.root, 
@@ -842,6 +859,14 @@ class Rtree:
     def insert_point(self, node_reference, inserted_coords):
         self._insert_point(node_reference, inserted_coords)
 
+    def delete_point(self, point):
+        # Step 1: Find it and delete it from the block of the indexfile and 
+        #         of the block of the datafile
+        # Step 2: If the leaf node gets lower than m, then reorganize the 
+        #         blocks of the indexfile and update every field of the R-tree
+        #         instance in the way
+        pass
+
 
     # method checks if @param rectangle contains @param point
     # @param rectangle is a list of point_dim elements that are
@@ -855,6 +880,8 @@ class Rtree:
 
         for i_dim in range(point_dim):
 
+            # If outside the box at one dimension then this means
+            # the rectangle does not contain the given point
             if point[i_dim] < rectangle[i_dim][0] or \
             point[i_dim] > rectangle[i_dim][1]:
                 return False
@@ -878,13 +905,24 @@ class Rtree:
         return True
 
 
-    # range query in the Rtree
-    # @param area is a list containing point_dim lists that each 
-    # contain 2 elements that are the lower and upper value of that dimension
+    
     def range_query(
             self,
             area: list
         ) -> list:
+
+
+        """
+        This function persforms a Range Query in the Rtree
+        given a specified area
+
+        Parameters:
+        area: Is a list containing point_dim lists that each 
+              contain 2 elements that are the lower and upper value of that dimension
+
+        Returns:
+        list: It returns a list with the points that the given rectangle contains
+        """
 
         # this will contain all points found in range
         result = []
@@ -894,12 +932,12 @@ class Rtree:
         nodes_to_check = [self.root.block_id]
         current_node: Block_Indexfile | None = None
 
-        while nodes_to_check:
+        while nodes_to_check: # ...is not empty
 
             current_node_to_check = nodes_to_check.pop()
-
+            # Load the current block from disk
             # when current node is the root, no need to load it
-            if current_node_to_check[0] != self.root.block_id:
+            if current_node_to_check[0] != self.root.block_id: # ? why it has brackets given the fact that its an integer?
 
                 # load node
                 current_node = block_load_indexfile(
@@ -908,6 +946,7 @@ class Rtree:
                 )
             else:
                 current_node = self.root
+
 
             # check whether current node is leaf node
             if current_node.is_leaf:
@@ -941,6 +980,84 @@ class Rtree:
             del current_node
 
         return result
+    
+    def _is_dominated(self, e: Record_Indexfile, S: list):
+        if not S:
+            return False # because list is empty
+        else:
+                
+            for point in S:
+                if e.is_dominated(point):
+                    return True
+                
+            return False
+        
+    def load_indexfile_block(self, b_id: int) -> Block_Indexfile:
+        offset = self.block_id_to_file_offset(b_id)
+        block = block_load_indexfile(self.index_file_name, offset)
+
+        return block
+                
+                    
+                    
+    
+    def skyline_query(self) -> list[Record_Datafile]:
+
+        """
+        Executes a skyline query on the index file.
+
+        This method retrieves the skyline points from the index file using a
+        min-heap, using mindist as a key, to efficiently explore the records.
+        It checks for domination among the records to determine the skyline.
+
+        :return: A list of skyline points represented as `Record_Datafile`.
+        :rtype: list[Record_Datafile]
+        
+        :raises SomeException: If there is an error while loading the index file
+                            or during data file record retrieval.
+
+        :example:
+
+        Example usage of the skyline_query method:
+
+        >>> skyline_points = instance.skyline_query()
+        >>> print(skyline_points)  # Outputs the skyline points
+        """
+
+        S :list[Record_Indexfile] = list() # List of skyline points
+        min_heap :list[Record_Indexfile] = list() # Heap of the items to be examined
+
+        # Heap initialized with all the records of the root
+        for child in self.root.records:
+            heapq.heappush(min_heap, child) # this works fine because "less than" operator: __lt__() is implemented
+
+        while min_heap:
+            # e is an entry that it will either be a bounding box or a data point
+            e: Record_Indexfile = heapq.heappop(min_heap)
+
+
+            if self._is_dominated(e, S): # Check if e is dominated by any point in S
+                continue
+            else: # e is not dominated by any point in S
+                if e.is_leaf:
+                    S.append(e)
+                else:
+                    block = self.load_indexfile_block(e.datafile_record_stored)
+
+                    for child in block.records:
+                        if self._is_dominated(child, S) == False:
+                            heapq.heappush(min_heap, child)
+
+        points: list[Record_Datafile] = []
+        for record in S:
+            point = record_load_datafile(record.datafile_record_stored[0], record.datafile_record_stored[1])
+            points.append(point)
+        
+        return points
+
+
+    def knn(self, k: int, point: list):
+        pass
 
 
     def remove_point(self, record: Record_Datafile):
@@ -955,6 +1072,8 @@ def rtree_write_indexfile(rtree: Rtree, indexfile_name):
     packed = struct.pack('>I', rtree_indexfile_offset)
     indexfile.write(packed)
     indexfile.seek(0, 2)
+
+    # Packing and Writing the basic fields of R-Tree
     packed = struct.pack(
         rtree_fmt, 
         rtree.num_of_blocks,
@@ -969,6 +1088,8 @@ def rtree_write_indexfile(rtree: Rtree, indexfile_name):
         rtree.forced_reinsert_enable
     )
     indexfile.write(packed)
+
+    # Packing and Writing the root MBR
     args = [rtree.root_bounding_box[i][j] \
                 for i in range(point_dim) \
                     for j in range(2)]
@@ -977,6 +1098,8 @@ def rtree_write_indexfile(rtree: Rtree, indexfile_name):
         *args
     )
     indexfile.write(packed)
+
+    # Packing and Writing the dictionary
     for k, v in rtree.block_id_to_file_offset.items():
         packed = struct.pack(
             '>IQ',
@@ -987,57 +1110,48 @@ def rtree_write_indexfile(rtree: Rtree, indexfile_name):
 
 
 def rtree_read_indexfile(indexfile_name) -> Rtree:
-    indexfile = open(indexfile_name, 'r+b')
-    indexfile.seek(0, 0)
-    rtree_indexfile_offset = \
-        struct.unpack(
-            '>I',
-            indexfile.read(
-                struct.calcsize(
-                    '>I'
-                )
+    with open(indexfile_name, 'r+b') as indexfile:
+
+        # Moving the pointer into position, reading data, unpacking data
+
+        # ...for the position of R-Tree in the indexfile
+        indexfile.seek(0, 0)
+        data_read = indexfile.read(struct.calcsize('>I'))
+        rtree_indexfile_offset = struct.unpack('>I',data_read)
+
+        # ...for the basic args
+        indexfile.seek(rtree_indexfile_offset[0], 0)
+        data_read = indexfile.read(struct.calcsize(rtree_fmt))
+        first_args = struct.unpack(rtree_fmt, data_read)
+            
+        # ..for the bounding box
+        format_for_root_bb = \
+        '>' + ''.join(
+            ['d' for _ in range(2 * point_dim)]
             )
-        )
-    indexfile.seek(rtree_indexfile_offset[0], 0)
-    first_args = \
-    struct.unpack(
-        rtree_fmt,
-        indexfile.read(
-            struct.calcsize(
-                rtree_fmt
-            )
-        )
-    )
-    format_for_root_bb = \
-    '>' + ''.join(
-        ['d' for _ in range(2 * point_dim)]
-        )
-    root_bb = \
-    struct.unpack(
-        format_for_root_bb,
-        indexfile.read(
-            struct.calcsize(
-                format_for_root_bb
-            )
-        )
-    )
-    root_bb = [
-            [root_bb[i * 2 + j] for j in range(2)]
-        for i in range(point_dim)
-    ]
-    block_id_to_file_offset = []
-    for _ in range(first_args[0]):
-        block_id_to_file_offset.append(
-            struct.unpack(
-                '>IQ',
-                indexfile.read(
-                    struct.calcsize(
-                        '>IQ'
+        data_read = indexfile.read(struct.calcsize(format_for_root_bb))
+        root_bb = struct.unpack(format_for_root_bb, data_read)
+        root_bb = [
+                [root_bb[i * 2 + j] for j in range(2)]
+                    for i in range(point_dim)
+        ]
+
+        # ...for the dictionary
+        block_id_to_file_offset = [] # Why is this a list and not a dict
+        for _ in range(first_args[0]):
+            block_id_to_file_offset.append(
+                struct.unpack(
+                    '>IQ',
+                    indexfile.read(
+                        struct.calcsize(
+                            '>IQ'
+                        )
                     )
                 )
             )
-        )
-    indexfile.close()
+
+
+
     return Rtree(
         indexfile_name,
         first_args[6],

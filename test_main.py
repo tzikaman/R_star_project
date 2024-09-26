@@ -1,5 +1,3 @@
-import sys
-
 import numpy as np
 from datafile_management import Block_Datafile
 from datafile_management import Record_Datafile
@@ -88,8 +86,9 @@ if __name__ == '__main__':
     
     
     data = osm_read.get_data()
-    
 
+    point_dim = data.shape[1] - 1
+    
     elements_to_insert = data.shape[0]
 
     

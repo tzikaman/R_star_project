@@ -1,3 +1,6 @@
+import math
+from file_management import *
+
 point_dim = 2
 
 # TODO : might consider removing altogether dim field from
@@ -30,6 +33,54 @@ class Record_Indexfile:
         else:
             self.vec = vec if vec is not None \
                 else [[float_info.max, -float_info.max] for _ in range(dim)] #init in the extreme values of floats
+            
+    def is_dominated(self, other: Record_Indexfile):
+        other_point: Record_Datafile = record_load_datafile(other.datafile_record_stored[0], other.datafile_record_stored[1])
+
+        if self.is_leaf:
+            self_point: Record_Datafile = record_load_datafile(self.datafile_record_stored[0], self.datafile_record_stored[1])
+
+            for dim in range(self.dim):
+                if self_point.vec[dim] < other_point[dim]:
+                    return False
+                
+            return True
+        
+        else:
+            for dim in range(self.dim):
+                if self.vec[dim][0] < other_point[dim]:
+                    return False
+            
+            return True
+
+            
+    # Calculates the minimum distance between the beginning of the axis
+    # and the record which it is either a bounding box or a point
+    # TODO: we need to chech about "negative" distances, meaning that
+    # TODO: beginning of axis is inside the bb
+    def calc_min_dist(self):
+        if self.is_leaf :
+            point: Record_Datafile = record_load_datafile(self.datafile_record_stored[0], self.datafile_record_stored[1])
+            distance = math.sqrt(sum(x**2 for x in point.vec))
+        else: # is a bounding box
+            closest_points = []
+            for i in range(self.dim): # for each dimension check which bound is closest to 0
+                if 0 <= self.vec[i][0]:
+                    closest_points.append(self.vec[i][0])
+                elif 0 >= self.vec[i][1]:
+                    closest_points.append(self.vec[i][1])
+                else:
+                    closest_points.append(0)
+            
+            distance = math.sqrt(sum(x**2 for x in closest_points))
+        
+        return distance
+            
+    def __lt__(self, other_record):
+        self_min_dist = self.calc_min_dist()
+        other_min_dist = other_record.calc_min_dist()
+        
+        return self_min_dist < other_min_dist
         
 
 class Block_Indexfile:

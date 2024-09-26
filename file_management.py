@@ -18,7 +18,14 @@ from sys import float_info
 datafile_blocks_offsets = []
 offset_for_next_block = 0
 
-
+########################################################################################## temporary solution
+# full path to osm file
+osm_path = "C:\\Users\\Public\\Documents\\map.osm"
+# full path to datafile
+datafile_name = 'C:\\Users\\Public\\Documents\\datafile'
+# full path to indexfile
+indexfile_name = 'C:\\Users\\Public\\Documents\\indexfile'
+##########################################################################################
 
 
 point_dim = 2
@@ -102,6 +109,13 @@ def block_write_indexfile(b: Block_Indexfile, indexfile_name, offset) -> int:
         indexfile.flush()
         
         return new_offset_for_next_block_to_enter
+    
+def record_load_datafile(r_id: int, b_id: int) -> Record_Datafile:
+    block: Block_Datafile = block_load_datafile(datafile_name, datafile_blocks_offsets[b_id])
+    record = block.get_record(r_id)
+
+    return record
+
 
             
 def block_load_datafile(datafile_name, offset) -> Block_Datafile:
@@ -143,7 +157,6 @@ def block_load_datafile(datafile_name, offset) -> Block_Datafile:
             if i < b.size:
                 b.id_to_index[unpacked_record[0]] = i 
 
-        datafile.close() # optional
 
         return b
 
