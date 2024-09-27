@@ -1,3 +1,4 @@
+import heapq
 from datafile_management import Block_Datafile
 from datafile_management import Record_Datafile
 
@@ -231,3 +232,5 @@ def block_load_indexfile(indexfile_name, offset) -> Block_Indexfile:
         indexfile.close()
 
         return b
+    
+

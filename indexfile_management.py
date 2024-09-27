@@ -58,7 +58,7 @@ class Record_Indexfile:
     # and the record which it is either a bounding box or a point
     # TODO: we need to chech about "negative" distances, meaning that
     # TODO: beginning of axis is inside the bb
-    def calc_min_dist(self):
+    def calc_min_dist(self, other: Record_Indexfile = None):
         if self.is_leaf :
             point: Record_Datafile = record_load_datafile(self.datafile_record_stored[0], self.datafile_record_stored[1])
             distance = math.sqrt(sum(x**2 for x in point.vec))

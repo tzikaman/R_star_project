@@ -859,14 +859,6 @@ class Rtree:
     def insert_point(self, node_reference, inserted_coords):
         self._insert_point(node_reference, inserted_coords)
 
-    def delete_point(self, point):
-        # Step 1: Find it and delete it from the block of the indexfile and 
-        #         of the block of the datafile
-        # Step 2: If the leaf node gets lower than m, then reorganize the 
-        #         blocks of the indexfile and update every field of the R-tree
-        #         instance in the way
-        pass
-
 
     # method checks if @param rectangle contains @param point
     # @param rectangle is a list of point_dim elements that are
@@ -903,7 +895,6 @@ class Rtree:
                 return False
             
         return True
-
 
     
     def range_query(
@@ -997,9 +988,7 @@ class Rtree:
         block = block_load_indexfile(self.index_file_name, offset)
 
         return block
-                
-                    
-                    
+                               
     
     def skyline_query(self) -> list[Record_Datafile]:
 
@@ -1054,10 +1043,69 @@ class Rtree:
             points.append(point)
         
         return points
+    
+    def _calculate_mindist(self, record: Record_Datafile | Record_Indexfile, point: list = None) -> int:
+        pass
 
 
     def knn(self, k: int, point: list):
-        pass
+        min_heap: list[Record_Indexfile] = list()
+        max_heap: list[Record_Datafile] = list()
+
+        # Min_heap initialized with all the records of the root
+        # unless the root is a leaf which means use only max heap
+        if self.root.is_leaf:
+            for child in self.root.records:
+                actual_record: Record_Datafile = record_load_datafile(child.datafile_record_stored[0], child.datafile_record_stored[1])
+                mindist_of_actual_record: int = self._calculate_mindist(actual_record, point)
+
+                if len(max_heap) == k:
+                    heapq.heappushpop(max_heap, (-mindist_of_actual_record, actual_record))
+                else:
+                    heapq.heappush(max_heap, (-mindist_of_actual_record, actual_record)) # The negative is saved in max_heap because python only supports min heap
+        else:
+
+            for child in self.root.records:
+                heapq.heappush(min_heap, (self._calculate_mindist(child, point), child)) # The child has the __lt__() implemented but it won't interfere as mindist has priority
+
+
+        while min_heap:
+            
+            inner_record: Record_Indexfile = heapq.heappop(min_heap)
+
+            # This check if there are possible closest point to the target
+            # and if not then there is no reason to continue as we have
+            # found the k nearest neighbors
+            if len(max_heap) == k:
+                mindist_of_top: Record_Datafile = -max_heap[0][0]
+
+                if mindist_of_top < self._calculate_mindist(inner_record, point): 
+                    min_heap.clear()
+                    continue
+
+            offset = self.block_id_to_file_offset(inner_record.datafile_record_stored)
+            block: Block_Indexfile = block_load_indexfile(self.index_file_name, offset)
+
+        
+            if block.is_leaf :
+                for child in block.records:
+                    actual_record: Record_Datafile = record_load_datafile(child.datafile_record_stored[0], child.datafile_record_stored[1])
+                    mindist_of_actual_record: int = self._calculate_mindist(actual_record, point)
+
+                    if len(max_heap) == k:
+                        heapq.heappushpop(max_heap, (-mindist_of_actual_record, actual_record))
+                    else:
+                        heapq.heappush(max_heap, (-mindist_of_actual_record, actual_record))
+
+            else: # is inner block
+                for child in block.records:
+                    heapq.heappush(min_heap, (self._calculate_mindist(child, point), child))
+
+            
+
+
+
+
 
 
     def remove_point(self, record: Record_Datafile):
