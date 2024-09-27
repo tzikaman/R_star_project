@@ -1045,10 +1045,63 @@ class Rtree:
         return points
     
     def _calculate_mindist(self, record: Record_Datafile | Record_Indexfile, point: list = None) -> int:
-        pass
+
+        if type(record) == Record_Indexfile:
+            if record.is_leaf:
+                converted: Record_Datafile = record_load_datafile(record.datafile_record_stored[0], record.datafile_record_stored[1])
+                mindist = math.sqrt(sum((a-b)**2 for a, b in zip(converted.vec, point) ))
+            else: # find mindist between an MBR and a point
+                squared_distances = 0
+
+                for dim in range(point_dim):
+                    if point[dim] < record.vec[dim][0]:
+                        squared_distances += (point[dim] - record.vec[dim][0])**2
+                    elif point[dim] > record.vec[dim][1]:
+                        squared_distances += (point[dim] - record.vec[dim][1])**2
+
+                mindist =  math.sqrt(squared_distances)
+        else:
+            mindist = math.sqrt(sum((a-b)**2 for a, b in zip(record.vec, point) ))
+
+        return mindist
+        
 
 
-    def knn(self, k: int, point: list):
+    def knn_query(self, k: int, point: list) -> list[Record_Datafile]:
+
+        """
+        Executes a k-nearest neighbors (k-NN) query on the index structure.
+
+        This method retrieves the `k` nearest records to a given point from the index file.
+        It uses two heaps:
+        - A min-heap (`min_heap`) to explore the child nodes based on the minimum distance.
+        - A max-heap (`max_heap`) to maintain the `k` nearest records, using the negative of the distance as the key.
+
+        The algorithm handles both leaf and inner nodes of the tree. If the root is a leaf, the method directly computes distances to the records. For inner nodes, it pushes the child nodes into the min-heap for further exploration.
+
+        The max-heap is used to efficiently track the nearest neighbors, ensuring that the farthest neighbor is removed once `k` neighbors are found. The method also terminates early if it detects that no closer points can be found.
+
+        :param k: The number of nearest neighbors to find.
+        :type k: int
+        :param point: The coordinates of the query point.
+        :type point: list
+
+        :return: A list of the `k` nearest records represented as `Record_Datafile`.
+        :rtype: list[Record_Datafile]
+
+        :raises SomeException: If there is an error while loading the index file
+                            or during data file record retrieval.
+
+        :example:
+
+        Example usage of the knn method:
+
+        >>> nearest_neighbors = instance.knn(5, [2.5, 4.3, 1.0])
+        >>> print(nearest_neighbors)  # Outputs the 5 nearest neighbors
+        """
+
+
+
         min_heap: list[Record_Indexfile] = list()
         max_heap: list[Record_Datafile] = list()
 
@@ -1100,6 +1153,8 @@ class Rtree:
             else: # is inner block
                 for child in block.records:
                     heapq.heappush(min_heap, (self._calculate_mindist(child, point), child))
+        
+        return max_heap
 
             
 
