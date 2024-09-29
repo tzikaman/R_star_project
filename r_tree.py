@@ -1,8 +1,11 @@
 from file_management import * 
+from datafile_management import *
 
 import math
 import copy
 import heapq
+
+from indexfile_management import *
 
 point_dim = 2
 
@@ -170,7 +173,6 @@ class Rtree:
 
         return (area_new_bb - area_former_bb)
 
-
     def _forced_reinsert(
             self, 
             current_node: Block_Indexfile, 
@@ -300,7 +302,6 @@ class Rtree:
         # the node above
         return (bb, elements_for_reinsertion)
             
-
     # split node algorithm
     #! TODO : when the record containing the new element to add to
     #! TODO : the Rtree is about to enter its final block, the record
@@ -500,7 +501,6 @@ class Rtree:
             (node_to_split.block_id, bb_values_for_best_axis[minimum_overlap[0]][0]), 
             (new_node.block_id, bb_values_for_best_axis[minimum_overlap[0]][1])
             )
-
 
     # TODO : See for proper memory management, see when you 
     # TODO : should pass references and when you should deep copy
@@ -765,8 +765,6 @@ class Rtree:
             else:
                 return None
 
-
-    
     def _insert_point(self, node_reference, inserted_coords, target_level=0):
         """
         Inserts an element into the R-tree.
@@ -855,10 +853,8 @@ class Rtree:
             # bounding box for root changed
             self.root_bounding_box = result
 
-
     def insert_point(self, node_reference, inserted_coords):
         self._insert_point(node_reference, inserted_coords)
-
 
     # method checks if @param rectangle contains @param point
     # @param rectangle is a list of point_dim elements that are
@@ -880,7 +876,6 @@ class Rtree:
             
         return True
 
-
     # method receives 2 rectangles in @global_var point_dim dimension
     # and checks whether they are intersecting each other
     def _rectangles_intersect(
@@ -895,8 +890,7 @@ class Rtree:
                 return False
             
         return True
-
-    
+   
     def range_query(
             self,
             area: list
@@ -972,7 +966,7 @@ class Rtree:
 
         return result
     
-    def _is_dominated(self, e: Record_Indexfile, S: list):
+    def _is_dominated(self, e: Record_Indexfile, S: list[Record_Indexfile]):
         if not S:
             return False # because list is empty
         else:
@@ -988,8 +982,7 @@ class Rtree:
         block = block_load_indexfile(self.index_file_name, offset)
 
         return block
-                               
-    
+                                
     def skyline_query(self) -> list[Record_Datafile]:
 
         """
@@ -1065,9 +1058,8 @@ class Rtree:
 
         return mindist
         
-
-
     def knn_query(self, k: int, point: list) -> list[Record_Datafile]:
+
 
         """
         Executes a k-nearest neighbors (k-NN) query on the index structure.
@@ -1156,12 +1148,103 @@ class Rtree:
         
         return max_heap
 
+    def _shift_decimal_to_integer(num):
+        # It shifts the decimal point of the num and 
+        # eventually turning it an integer. The shift is 
+        # always 7 positions because thats how many 
+        # decimals geolocation coordinates need
+        shifted_num = int(num * 10**7)
+        
+        return shifted_num
+
+    def interleave_bits(point: list[int]):
+        # Determine the maximum number of bits needed
+        max_bits = max(point).bit_length()
+        print(max_bits)
+
+        # Create a variable to hold the interleaved bits
+        z_value = 0
+
+        # Iterate over each bit position
+        for bit_pos in range(max_bits):
+            for i, num in enumerate(point):
+                # Extract the bit at bit_pos from the current number
+                bit = (num >> bit_pos) & 1
+                # Place it in the correct position in the z-value
+                z_value |= (bit << (bit_pos * len(point) + i))
+
+        return z_value
+        
+    def bulk_loading(self, datafile_name, df_blocks_offsets):
+        # rec_counter = 0
+        # block_counter = 0
+
+        # for offset in datafile_blocks_offsets:
+        #     df_block: Block_Datafile = block_load_datafile(datafile_name, offset)
+
+        #     idxf_records = []
+        #     for df_record in enumerate(df_block.records):
+        #         idxf_record: Record_Indexfile = Record_Indexfile(dim= df_record.dim,
+        #                                                          is_leaf= True,
+        #                                                          datafile_record_stored= df_record.record_id, 
+        #                                                          record_id= counter,
+        #                                                          vec= df_record.vec)
+        #         counter += 1
+        #         idxf_records.append(idxf_record)
+
+        #     idxf_block: Block_Indexfile = Block_Indexfile(df_block.point_dim,
+        #                                                   True,
+        #                                                   struct.calcsize(record_fmt_indexfile_leaf),
+        #                                                   block_counter,
+        #                                                   size=len(idxf_records))
+        #     block_counter += 1
+
+        recs_to_insert = list()
+        num_of_df_blocks = len(df_blocks_offsets)
+        offset_iterator = 0
+
+        idxf_block_counter = 0
+        idxf_record_counter = 0
+
+        
+        df_block = block_load_datafile(datafile_name, df_blocks_offsets[offset_iterator])
+        offset_iterator +=1
+
+        recs_to_insert.extend(df_block.records)
+
+        while recs_to_insert or offset_iterator < num_of_df_blocks:
             
+            idxf_block: Block_Indexfile = Block_Indexfile(point_dim,
+                                                          True,
+                                                          struct.calcsize(record_fmt_indexfile_leaf),
+                                                          idxf_block_counter)
+            while idxf_block.size < 0.7 * idxf_block.max_num_of_records:
+                if len(recs_to_insert) == 0: # if list of recs is empty
+                    if offset_iterator == num_of_df_blocks: # and blocks in datafile are exhausted, terminate
+                        break
+                    else:
+                        df_block = block_load_datafile(datafile_name, df_blocks_offsets[offset_iterator])
+                        offset_iterator += 1
 
+                        recs_to_insert.extend(df_block.records)
 
+                df_record: Record_Datafile = recs_to_insert.pop()
+                idxf_record: Record_Indexfile = Record_Indexfile(dim= df_record.dim,
+                                                                 is_leaf= True,
+                                                                 datafile_record_stored= df_record.record_id, 
+                                                                 record_id= idxf_record_counter,
+                                                                 vec= df_record.vec)
+                idxf_block.add_record(idxf_record)
+                idxf_record_counter += 1
+            else:
+                idxf_block_counter +=1
+                idxf_record_counter = 0
 
-
-
+            #block_write_indexfile(idxf_block, self.index_file_name, )
+            print(idxf_block)
+            
+                
+        pass
 
     def remove_point(self, record: Record_Datafile):
         pass

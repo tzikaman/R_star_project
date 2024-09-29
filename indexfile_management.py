@@ -1,5 +1,6 @@
 import math
 from file_management import *
+from datafile_management import *
 
 point_dim = 2
 
@@ -33,8 +34,13 @@ class Record_Indexfile:
         else:
             self.vec = vec if vec is not None \
                 else [[float_info.max, -float_info.max] for _ in range(dim)] #init in the extreme values of floats
+
+    def __str__(self) -> str:
+        output = 'r_id: ' + str(self.record_id) + ' coords:' + str(self.vec) 
+
+        return output 
             
-    def is_dominated(self, other: Record_Indexfile):
+    def is_dominated(self, other):
         other_point: Record_Datafile = record_load_datafile(other.datafile_record_stored[0], other.datafile_record_stored[1])
 
         if self.is_leaf:
@@ -58,7 +64,7 @@ class Record_Indexfile:
     # and the record which it is either a bounding box or a point
     # TODO: we need to chech about "negative" distances, meaning that
     # TODO: beginning of axis is inside the bb
-    def calc_min_dist(self, other: Record_Indexfile = None):
+    def calc_min_dist(self, other = None):
         if self.is_leaf :
             point: Record_Datafile = record_load_datafile(self.datafile_record_stored[0], self.datafile_record_stored[1])
             distance = math.sqrt(sum(x**2 for x in point.vec))
@@ -110,6 +116,12 @@ class Block_Indexfile:
             ]
         self.id_to_index: dict = dict()
         self.record_id_counter = 1
+
+    def __str__(self) -> str:
+        output = 'block id:' + str(self.block_id) + ' size: ' + str(self.size) + ' percentage of fullness: ' + str(self.size/self.max_num_of_records)
+        
+
+        return output
 
     def give_next_available_record_id(self) -> int:
         next_record_id = self.record_id_counter

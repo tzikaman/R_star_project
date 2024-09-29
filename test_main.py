@@ -137,7 +137,7 @@ if __name__ == '__main__':
     for i in range(elements_to_insert):
         if i%100 == 0 :
             print(i)
-
+            
         if current_data_block.is_full():
 
             block_write_datafile(
@@ -169,6 +169,9 @@ if __name__ == '__main__':
             insert_point(final[i])
     end = time.time()
     print(f"Elapsed time: {end-start:.6f} seconds")
+
+    catalog: Rtree = Rtree(index_file_name=indexfile_name)
+    catalog.bulk_loading(datafile_name, datafile_blocks_offsets)
 
     
     # current_data_block.remove_record(15)

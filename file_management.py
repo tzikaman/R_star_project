@@ -1,9 +1,6 @@
-import heapq
-from datafile_management import Block_Datafile
-from datafile_management import Record_Datafile
+from datafile_management import *
+from indexfile_management import *
 
-from indexfile_management import Block_Indexfile
-from indexfile_management import Record_Indexfile
 
 
 import struct
@@ -75,7 +72,7 @@ def block_write_datafile(b: Block_Datafile, datafile_name, offset):
 
         new_offset_for_next_block = datafile.tell()
 
-        datafile.flush() # redundant as "with" block ensures it
+        datafile.flush()
 
         return new_offset_for_next_block
 
