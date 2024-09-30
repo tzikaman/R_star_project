@@ -55,12 +55,12 @@ def insert_point(data):
                     [data[1], data[2]]
                 )
             )
-
+    
 
 if __name__ == '__main__':
 
     # full path to osm file
-    osm_path = "C:\\Users\\Public\\Documents\\map.osm"
+    osm_path = "C:\\Users\\Family\\Downloads\\albania-latest.osm.pbf"
     # full path to datafile
     datafile_name = 'C:\\Users\\Public\\Documents\\datafile'
     # full path to indexfile
@@ -87,9 +87,13 @@ if __name__ == '__main__':
     
     data = osm_read.get_data()
 
+    
+
     point_dim = data.shape[1] - 1
     
     elements_to_insert = data.shape[0]
+
+    print('total elements: ', elements_to_insert)
 
     
     names = []
@@ -103,6 +107,7 @@ if __name__ == '__main__':
     np_names = np.array(names)
 
     final = np.column_stack((data,np_names))
+
     
     
     
@@ -134,8 +139,9 @@ if __name__ == '__main__':
     import time
     start = time.time()
     # Inserting elements one by one takes 2 sec for 100 insertions = 20 ms for each insertion
-    for i in range(elements_to_insert):
-        if i%100 == 0 :
+    
+    for i, element in enumerate(final):
+        if i % 100000 == 0:
             print(i)
             
         if current_data_block.is_full():
@@ -146,7 +152,7 @@ if __name__ == '__main__':
                 offset=datafile_blocks_offsets[current_data_block.block_id]
             )
 
-            del current_data_block
+            
 
             current_data_block = Block_Datafile(
                 Block_Datafile.get_next_available_block_id(),
@@ -162,15 +168,24 @@ if __name__ == '__main__':
                 offset=offset_for_next_block
             )
 
-            insert_point(final[i])
+            insert_point(element)
 
         else:
 
-            insert_point(final[i])
+            insert_point(element)
+
     end = time.time()
     print(f"Elapsed time: {end-start:.6f} seconds")
 
-    catalog: Rtree = Rtree(index_file_name=indexfile_name)
+    # for id, offset in enumerate(datafile_blocks_offsets) :
+    #     block = block_load_datafile(datafile_name,
+    #                                 offset)
+    #     for x in block.records:
+    #         print(x.vec)
+
+
+    catalog: Rtree = Rtree(index_file_name=indexfile_name, 
+                           maximum_num_of_records= block_size//struct.calcsize(record_fmt_indexfile_leaf))
     catalog.bulk_loading(datafile_name, datafile_blocks_offsets)
 
     

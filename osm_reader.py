@@ -25,6 +25,7 @@ class GetNamesAndLocs(osmium.SimpleHandler):
         
     def node(self, n):
         # Append a tuple (id, lat, lon) to the list
+        
         self.records.append((n.id, n.location.lat, n.location.lon))
 
     def get_data(self):

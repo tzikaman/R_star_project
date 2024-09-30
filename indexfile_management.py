@@ -1,6 +1,7 @@
 import math
 from file_management import *
 from datafile_management import *
+from sys import *
 
 point_dim = 2
 

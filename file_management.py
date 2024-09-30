@@ -77,7 +77,7 @@ def block_write_datafile(b: Block_Datafile, datafile_name, offset):
         return new_offset_for_next_block
 
 
-def block_write_indexfile(b: Block_Indexfile, indexfile_name, offset) -> int:
+def block_write_indexfile(b, indexfile_name, offset) -> int:
 
     with open(indexfile_name, 'r+b') as indexfile:
         indexfile.seek(offset)
@@ -159,7 +159,7 @@ def block_load_datafile(datafile_name, offset) -> Block_Datafile:
         return b
 
 
-def block_load_indexfile(indexfile_name, offset) -> Block_Indexfile:
+def block_load_indexfile(indexfile_name, offset, b_id) -> Block_Indexfile:
 
     with open(indexfile_name, 'r+b') as indexfile:
         indexfile.seek(offset)
@@ -178,6 +178,8 @@ def block_load_indexfile(indexfile_name, offset) -> Block_Indexfile:
                 is_leaf=unpacked_block[1], 
 
                 size_of_record= leaf_node_size if is_leaf_flag else inner_node_size, 
+                
+                block_id=b_id,
 
                 block_size=block_size, 
                 size=unpacked_block[0]
