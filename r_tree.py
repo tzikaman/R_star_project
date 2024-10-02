@@ -6,10 +6,12 @@ import heapq
 
 point_dim = 2
 
+
 class Rtree:
 
     def __init__(self, 
             index_file_name,
+            datafile_name_change_that,
             root_block_offset = None,
             forced_reinsert_enable = True,
             maximum_num_of_records = None,
@@ -24,6 +26,7 @@ class Rtree:
                 struct.calcsize('>I')
         ):
         self.index_file_name = index_file_name
+        self.datafile_name_change_that = datafile_name_change_that
         self.forced_reinsert_enable = forced_reinsert_enable
         self.num_of_blocks = num_of_blocks
         self.num_of_leaves = num_of_leaves
@@ -39,7 +42,7 @@ class Rtree:
         # TODO : Check if can gauge height of Tree 
         # TODO : based on number of nodes it has
 
-        self.block_id_to_file_offset = \
+        self.block_id_to_file_offset: dict = \
             block_id_to_file_offset
         
         # TODO : Consider depending on how the block 
@@ -76,7 +79,7 @@ class Rtree:
                     point_dim=point_dim, 
                     is_leaf=True, 
                     size_of_record=\
-                        struct.calcsize(record_fmt_indexfile_leaf), 
+                        struct.calcsize(record_fmt_indexfile), 
                     block_id=0
                 )
 
@@ -118,11 +121,6 @@ class Rtree:
         next_id = self.block_id_index_counter
         self.block_id_index_counter += 1
         return next_id
-
-    #! check that thing about forced reinsert and 
-    #! Rtree gaining height in the process, whether
-    #! entries will remember at what level they need
-    #! to enter
 
     # TODO : check if it is safe to check target_level on an entry to be 
     # TODO : inserted to the Rtree and compare it with Rtree height to 
@@ -322,11 +320,21 @@ class Rtree:
             )
         )
         best_axis_to_split = None
+        # bb_values_for_best_axis will hold the bounding boxes of the groups of all the different 
+        # distribution splits over the axis that has been selected as best axis to split
+        # bb_values_for_best_axis[e] returns a particular split, that is a list containing the two bounding boxes of the
+        # two groups of records
+        # bb_values_for_best_axis[e][g] where g can be 0 or 1 returns the bounding box of a particular group of the two
+        # bb_values_for_best_axis[e][g][dim] selects information about a particular dimension of that bounding box
+        # bb_values_for_best_axis[e][g][dim][l] where l can be 0 or 1 selects the low value or the high value respectively 
+        # of that edge of the hyper rectangle on dim axis 
         bb_values_for_best_axis = None
         bb_values_for_different_distros = []
         for i in range(point_dim):
             margin_score_for_axis = 0.0
             for l in range(2):
+                # here the condition 'node_to_split.is_leaf and l' stop second iteration when node_to_split is a leaf node
+                # because second iteration is only used for bounding boxes that have 2 elements to check (low value and high value) 
                 if node_to_split.is_leaf and l:
                     break
                 if node_to_split.is_leaf:
@@ -394,7 +402,10 @@ class Rtree:
                 bb_values_for_best_axis = bb_values_for_different_distros
         # best split axis is found
         # finding best distro split
-        minimum_overlap = None
+        
+        # minimum_overlap will hold all different distribution splits that have both the same minimum overlap value
+        # so if no other distribution scores better there, further chech needs to happen to pick best split
+        minimum_overlap: list = []
         for e in range(len(bb_values_for_best_axis)):
             # find bb overlap between the two groups
             current_overlap = 1.0
@@ -418,12 +429,42 @@ class Rtree:
                         bb_values_for_best_axis[e][1][k][0] 
                         else bb_values_for_best_axis[e][1][k][0])
             # check if newly calculated overlap volume is smaller
-            if minimum_overlap is None:
-                minimum_overlap = (e, current_overlap)
-            elif current_overlap < minimum_overlap[1]:
-                minimum_overlap = (e, current_overlap)
-            elif current_overlap == minimum_overlap:
-                pass  # TODO : compare areas and choose smallest
+            if not minimum_overlap:
+                minimum_overlap.append([e, current_overlap])
+            elif current_overlap < minimum_overlap[0][1]: #!
+                minimum_overlap.clear() # empty list because if there where more than 1 distros with 
+                                        # same score, they are both dominated by new distro
+                minimum_overlap.append([e, current_overlap]) # add new distro to list as the sole element
+            elif current_overlap == minimum_overlap[0][1]:
+                # new distro has the same minimum overlap value with other(s) distros in the list, therefore
+                # it is added to the list
+                minimum_overlap.append([e, current_overlap])
+        if len(minimum_overlap) > 1:
+            # if there are more than one elements in the list, then 
+            # there are more than one elements with the same minimum_overlap,
+            # thus performing the further check to find best split
+
+            best_split = None
+            for distro_index in range(len(minimum_overlap)):
+                # calculate area-value (sum of the hypervolumes of the 
+                # bounding boxes of the two groups) for current split
+                area_value = 0
+                for g in range(2):
+                    # when g is 0 first group hypervolume will be calculated
+                    # when g is 1 other group hypervolume will be calculated
+                    current_hypervolume = 1
+                    for dim_index in point_dim:
+                        current_hypervolume *= \
+                            bb_values_for_best_axis[minimum_overlap[distro_index][0]][g][dim_index][1] - \
+                                bb_values_for_best_axis[minimum_overlap[distro_index][0]][g][dim_index][0]
+                    area_value += current_hypervolume
+                if best_split is None:
+                    best_split = [minimum_overlap[distro_index][0], area_value]
+                elif area_value < best_split[1]:
+                    best_split = [minimum_overlap[distro_index][0], area_value]
+        else:
+            best_split = minimum_overlap[0][0]
+
         # spliting the records of node into the groups
         if node_to_split.is_leaf:
             records.sort(key= lambda r : 
@@ -433,9 +474,9 @@ class Rtree:
                 r.vec[best_axis_to_split[0]]
                 [int(e >= (self.maximum_num_of_records - 
                         2 * self.minimum_num_of_records + 2))])
-        k = (minimum_overlap[0] + 1) if minimum_overlap[0] < \
+        k = (best_split + 1) if best_split < \
         (self.maximum_num_of_records - 2 * self.minimum_num_of_records + 2) \
-        else (minimum_overlap[0] - 
+        else (best_split - 
             (self.maximum_num_of_records - 2 * self.minimum_num_of_records + 1))
         group_1 = records[ : (self.minimum_num_of_records - 1) + k]
         group_2 = records[(self.minimum_num_of_records - 1) + k : ]
@@ -468,9 +509,7 @@ class Rtree:
             Block_Indexfile(
                 point_dim, 
                 node_to_split.is_leaf, 
-                struct.calcsize(record_fmt_indexfile_leaf)
-                    if node_to_split.is_leaf else
-                    struct.calcsize(record_fmt_indexfile_inner), 
+                struct.calcsize(record_fmt_indexfile), 
                 self._give_next_available_block_id()
             )
         for i in range(len(group_2)):
@@ -497,8 +536,8 @@ class Rtree:
                     )
         # return the block ids and the respectives bb
         return (
-            (node_to_split.block_id, bb_values_for_best_axis[minimum_overlap[0]][0]), 
-            (new_node.block_id, bb_values_for_best_axis[minimum_overlap[0]][1])
+            (node_to_split.block_id, bb_values_for_best_axis[best_split][0]), 
+            (new_node.block_id, bb_values_for_best_axis[best_split][1])
             )
 
 
@@ -802,8 +841,7 @@ class Rtree:
             self.root = Block_Indexfile(
                 point_dim,
                 is_leaf=False,
-                size_of_record= \
-                    struct.calcsize(record_fmt_indexfile_inner),
+                size_of_record= struct.calcsize(record_fmt_indexfile),
                 block_id=self._give_next_available_block_id()
             )
             self.root.add_record(
@@ -1156,15 +1194,696 @@ class Rtree:
         
         return max_heap
 
+
+    def _remove_point_recurse(self, 
+                              point_id: int,
+                              point_coords: list[float],
+                              current_node_id: int,
+                              current_node_level: int,
+                              current_node_bounding_box: list[list[int, int]],
+                              datafile_name: str,
+                              entries_for_reinsertion: list[list[list[int, int], list[int], int] | list[int, list[int], int]] = []
+                              ):
+        """
+        Executes a k-nearest neighbors (k-NN) query on the index structure.
+
+        This method retrieves the `k` nearest records to a given point from the index file.
+        It uses two heaps:
+        - A min-heap (`min_heap`) to explore the child nodes based on the minimum distance.
+        - A max-heap (`max_heap`) to maintain the `k` nearest records, using the negative of the distance as the key.
+
+        The algorithm handles both leaf and inner nodes of the tree. If the root is a leaf, the method directly computes distances to the records. For inner nodes, it pushes the child nodes into the min-heap for further exploration.
+
+        The max-heap is used to efficiently track the nearest neighbors, ensuring that the farthest neighbor is removed once `k` neighbors are found. The method also terminates early if it detects that no closer points can be found.
+
+        :param k: The number of nearest neighbors to find.
+        :type k: int
+        :param point: The coordinates of the query point.
+        :type point: list
+
+        initialise list that will hold all entries that will need to be reinserted
+        to the Rtree due to block deletion
+
+        this list will hold elements in the form of [[datafile_block_id, datafile_slot_id], [coordinates], insertion_level] if
+        the reinserted element is inside a leaf node or in the form
+        [indexfile_block_id, [coordinates], insertion_level] if reinserted element is an entry of an 
+        inner Rtree node
+
+        the list will be returned from each recursion
+
+        :return: A list of the `k` nearest records represented as `Record_Datafile`.
+        :rtype: list[Record_Datafile]
+
+        :raises SomeException: If there is an error while loading the index file
+                            or during data file record retrieval.
+
+        :example:
+
+        Example usage of the knn method:
+
+        >>> nearest_neighbors = instance.knn(5, [2.5, 4.3, 1.0])
+        >>> print(nearest_neighbors)  # Outputs the 5 nearest neighbors
+        """
+        # TODO : check if all blocks that must be writed back to indexfile are indeed writed back
+        #! check if before moving last entry to position of deleted entry if deleted entry is not already the last entry
+        #! check if all keys searching in the dictionaries are correct
+        #! make sure that low and high values of rectangle edge are indexed correctly everywhere
+        # first load the node
+        current_block: Block_Indexfile = block_load_indexfile(
+            self.index_file_name,
+            offset=self.block_id_to_file_offset[current_node_id]
+        )
+
+        # check if current_node_id is reference to an inner node of the catalog
+        # or reference to a point in the dataset
+
+        if current_block.is_leaf:
+            # current_node_id holds the block id of a leaf node of the catalog
+            # check through all of its entries to see if any match the coordinates of 
+            # element to be deleted
+
+            for i in range(current_block.size):
+                if self._points_are_equal(
+                    point_coords,
+                    current_block.records[i].vec
+                ):
+                    # in case a coordinate match if found, load the record 
+                    # from the datafile to check whether it is indeed the 
+                    # element meant for deletion
+                    loaded_datafile_block = block_load_datafile(
+                        datafile_name,
+                        datafile_blocks_offsets[current_block.records[i].datafile_record_stored[0]]
+                    )
+
+                    deleted_record_position_in_records_list = \
+                        loaded_datafile_block.id_to_index[
+                            current_block.records[i].datafile_record_stored[1]
+                        ]
+                        
+                    if loaded_datafile_block.records[
+                            deleted_record_position_in_records_list
+                        ].id == point_id:
+
+                        # if record is indeed the desired one, perform deletion
+
+                        # first delete entry from the datafile
+                        del loaded_datafile_block.id_to_index[
+                                current_block.records[i].datafile_record_stored[1]
+                            ]
+
+                        if deleted_record_position_in_records_list != loaded_datafile_block.size - 1:
+                            # record to be deleted is not the last in the block's records list
+                            # thus last entry of this list is moved to its location
+                                                    
+                            loaded_datafile_block.id_to_index[
+                                loaded_datafile_block.records[
+                                    loaded_datafile_block.size - 1
+                                ].record_id
+                            ] = deleted_record_position_in_records_list
+
+                            loaded_datafile_block.records[
+                                deleted_record_position_in_records_list
+                            ] = loaded_datafile_block.records[
+                                loaded_datafile_block.size - 1
+                            ]
+
+                        loaded_datafile_block.records[loaded_datafile_block.size - 1] = Record_Datafile(point_dim)
+
+                        loaded_datafile_block.size -= 1
+
+                        if loaded_datafile_block.block_id != datafile_last_block_id:
+                            # this means that the datafile block in which the deletion will
+                            # occur is not the final block, therefore it must be added to
+                            # datafile_blocks_with_bubbles list
+
+                            datafile_blocks_with_bubbles.append(loaded_datafile_block.block_id)
+
+                        # store datafile block back to datafile
+                        block_write_datafile(
+                            current_block,
+                            datafile_name,
+                            offset=datafile_blocks_offsets[loaded_datafile_block.block_id]
+                        )
+
+                        # now deleting entry from the indexfile
+
+                        # updating dictionary
+
+                        if i != current_block.size - 1:
+                            
+                            del current_block.id_to_index[current_block.records[i].record_id]
+
+                            current_block.id_to_index[
+                                current_block.records[
+                                    current_block.size - 1
+                                ].record_id
+                            ] = i
+
+                            current_block.records[i] = \
+                                current_block.records[current_block.size - 1]
+                            
+                        current_block.records[current_block.size - 1] = \
+                            Record_Indexfile(
+                                point_dim,
+                                True,
+                                datafile_record_stored=[0, 0]
+                            )
+
+                        current_block.size -= 1
+
+                        if current_block.size < self.minimum_num_of_records and current_block.block_id != self.root.block_id:
+
+                            # if entries in current leaf node are fewer than the least amount
+                            # allowed, merging needs to occur
+
+                            if self.num_of_blocks == 3:
+                                # if a merge needs to occur and the number of blocks of the Rtree are 3
+                                # that means that there is the root and two child nodes which will be merged,
+                                # the result will be just the root as a leaf node
+
+                                new_root_node: Block_Indexfile = Block_Indexfile(
+                                                    point_dim=point_dim,
+                                                    is_leaf=True,
+                                                    size_of_record=\
+                                                        struct.calcsize(record_fmt_indexfile),
+                                                    block_id=self._give_next_available_block_id(),
+                                                )
+
+                                # put all elements of current block to root
+                                for i in range(current_block.size):
+                                    new_root_node.add_record(
+                                        Record_Indexfile(
+                                            dim = point_dim,
+                                            is_leaf=True,
+                                            datafile_record_stored=current_block.records[i].datafile_record_stored,
+                                            record_id=new_root_node.give_next_available_record_id(),
+                                            vec=current_block.records[i].vec
+                                        )
+                                    )
+
+                                other_block_id: int = self.root.records[1].datafile_record_stored \
+                                if self.root.records[0].datafile_record_stored == current_block.block_id \
+                                else self.root.records[0].datafile_record_stored
+
+                                del current_block
+
+                                # loading other block to merge
+
+                                current_block = block_load_indexfile(
+                                                    self.index_file_name,
+                                                    other_block_id,
+                                                    self.block_id_to_file_offset[other_block_id]
+                                                )
+                                
+                                # put all elements of other block to root as well
+
+                                for i in range(current_block.size):
+                                    new_root_node.add_record(
+                                        Record_Indexfile(
+                                            dim = point_dim,
+                                            is_leaf=True,
+                                            datafile_record_stored=current_block.records[i].datafile_record_stored,
+                                            record_id=new_root_node.give_next_available_record_id(),
+                                            vec=current_block.records[i].vec
+                                        )
+                                    )
+
+                                new_root_bounding_box = new_root_node.calculate_bounding_box()
+                                self.offset_for_next_block_to_enter = struct.calcsize('>I')
+
+                                # remove old block files from indexfile
+                                with open(self.index_file_name, 'r+b') as indexfile:
+                                    indexfile.seek(self.offset_for_next_block_to_enter)
+                                    indexfile.truncate()
+
+                                # update dictionary
+                                self.block_id_to_file_offset.clear()
+                                self.block_id_to_file_offset[new_root_node.block_id] = \
+                                    self.offset_for_next_block_to_enter
+
+                                # write new root to indexfile
+                                self.offset_for_next_block_to_enter = block_write_indexfile(
+                                    new_root_node,
+                                    self.index_file_name,
+                                    offset = self.offset_for_next_block_to_enter
+                                )
+
+                                self.num_of_blocks -= 2
+                                self.num_of_leaves -= 1
+                                self.height -= 1
+
+                                # set self.root to new root block
+                                self.root = new_root_node
+
+                                return (2, new_root_bounding_box)
+                            
+                            # creating the list that will hold all elements marked for reinsertion
+
+                            # this list will hold elements in the form of [[datafile_block_id, datafile_slot_id], [coordinates], insertion_level] if
+                            # the reinserted element is inside a leaf node or in the form
+                            # [indexfile_block_id, [coordinates], insertion_level] if reinserted element is an entry of an 
+                            # inner Rtree node
+
+                            # the list will be returned from each recursion
+                            reinserted_elements: list[list[list[int, int], list[int], int] | list[int, list[int], int]] = []
+
+                            for i in range(current_block.size):
+                                reinserted_elements.append([
+                                        current_block.records[i].datafile_record_stored,
+                                        current_block.records[i].vec,
+                                        0
+                                    ])
+                                    
+                            # delete block by overwriting it with last block of indexfile if it isn't last block
+                            # or just delete block if it is the last block
+                                
+                            deleted_block_offset = self.block_id_to_file_offset[current_block.block_id]
+                            #! double check line below
+                            final_block_offset = self.offset_for_next_block_to_enter - \
+                                (struct.calcsize(block_fmt_indexfile) + \
+                                    self.maximum_num_of_records * struct.calcsize(record_fmt_indexfile))
+                                
+                            if deleted_block_offset != final_block_offset:
+                                # if deleted block is not the last block 
+                                final_block_id = [key_block_id for key_block_id, value_offset in self.block_id_to_file_offset.items() if value_offset == final_block_offset][0]
+                                    
+                                # load block stored last in indexfile
+                                final_block = block_load_indexfile(
+                                    self.index_file_name,
+                                    final_block_id,
+                                    final_block_offset
+                                )
+
+                                # overwrite deleted block with the last block
+                                block_write_indexfile(
+                                    final_block,
+                                    self.index_file_name,
+                                    offset=deleted_block_offset
+                                )
+
+                                # update dictionary
+                                self.block_id_to_file_offset[final_block_id] = deleted_block_offset
+
+                            # truncate file after new last element (in essence deleting the last stored block space that is no longer needed)
+                            with open(self.index_file_name, 'r+b') as indexfile:
+                                indexfile.seek(final_block_offset)
+                                indexfile.truncate()
+
+                            self.num_of_blocks -= 1
+                            self.num_of_leaves -= 1
+                            del self.block_id_to_file_offset[current_block.block_id]
+                            self.offset_for_next_block_to_enter = final_block_offset
+
+                            return (1,) # this signals parent node that block was deleted due to merging
+                        else:
+                            # entries in the block are not fewer than minimum amount of records allowed after point deletion
+                            # therefore just deleting the point's entry
+
+                            del current_block.id_to_index[current_block.records[i].record_id]
+
+                            #! TODO : check that all similar cases also have the else part
+                            #! TODO : check that if-else code below works as expected
+                            if i != current_block.size - 1:
+                                # move last entry to position of deleted entry in records list
+
+                                current_block.id_to_index[current_block.records[current_block.size - 1].record_id] = i
+                                current_block.records[i] = current_block.records[current_block.size - 1]
+                                current_block.records[current_block.size - 1] = Record_Indexfile(
+                                                                                    point_dim,
+                                                                                    True,
+                                                                                    [0, 0]
+                                                                                )
+                            else:
+                                current_block.records[i] = Record_Indexfile(
+                                                                point_dim,
+                                                                True,
+                                                                [0, 0]
+                                                            )
+
+                            current_block.size -= 1
+
+                            if current_block.block_id == self.root.block_id and current_block.size == 0:
+                                # current block is the root block and is empty
+                                return (1,) # return signal to prepare Rtree into an empty root block states
+
+                            # update bounding box of current block
+
+                            bounding_box_changed: bool = False
+
+                            for dim in range(point_dim):
+                                if point_coords[dim] == current_node_bounding_box[dim][0]:
+                                    # if for a specific dimension the bounding box of the current block has
+                                    # a lower value that hits exactly the value of the deleted point
+                                    # at this dimension, find new low value for bounding box
+
+                                    bounding_box_changed = True
+
+                                    lowest: float = current_block.records[0].vec[dim]
+                                    for record_entry_index in range(1, current_block.size):
+                                        if current_block.records[record_entry_index].vec[dim] < lowest:
+                                            lowest = current_block.records[record_entry_index].vec[dim]
+                                    current_node_bounding_box[dim][0] = lowest
+
+                                if point_coords[dim] == current_node_bounding_box[dim][1]:
+                                    # if for a specific dimension the bounding box of the current block has
+                                    # a high value that hits exactly the value of the deleted point
+                                    # at this dimension, find new low value for bounding box
+
+                                    bounding_box_changed = True
+
+                                    highest: float = current_block.records[0].vec[dim]
+                                    for record_entry_index in range(1, current_block.size):
+                                        if current_block.records[record_entry_index].vec[dim] > highest:
+                                            highest = current_block.records[record_entry_index].vec[dim]
+                                    current_node_bounding_box[dim][1] = highest
+
+                            # write block back to indexfile
+                            block_write_indexfile(
+                                current_block,
+                                self.index_file_name,
+                                offset=self.block_id_to_file_offset[current_block.block_id]
+                            )
+
+                            return (2, current_node_bounding_box) if bounding_box_changed else (0,)
+            else:
+                # current block does not contain point to be deleted
+                # ending current recursion call
+                return (None,)
+        else:
+            # current node is an inner node of the Rtree
+            # check its entries to see which bounding boxes contain the elements
+            # and add them to node_to_check_list
+
+            entries_to_check: list[tuple[int, int]] = []
+                
+            for i in range(current_block.size):
+                if self._rectangle_contains_point(
+                    point=point_coords,
+                    rectangle=current_block.records[i].vec
+                ):
+                    # bounding box of this record might contain deletion point
+                    
+                    entries_to_check.append(current_block.records[i].datafile_record_stored)
             
+            # for every entry inside which potentially the point to be deleted might located
+            # start a new recursion call
+            while entries_to_check:
+                currently_searching: int = entries_to_check.pop()
+                result_from_recurse = self._remove_point_recurse(
+                    point_id,
+                    point_coords,
+                    current_block.records[currently_searching].datafile_record_stored,
+                    current_node_level - 1,
+                    copy.deepcopy(current_block.records[currently_searching].vec),
+                    datafile_name,
+                    entries_for_reinsertion
+                )
+                if result_from_recurse[0] == 0:
+                    # signals that deletion occured and bounding boxes are no longer updated
+                    return (0,)
+                elif result_from_recurse[0] == 1:
+                    # signal that element was found and this entry will be deleted from the Rtree
+                    # because the child block it points to has been deleted
+
+                    if current_block.size == self.minimum_num_of_records and current_block.block_id != self.root.block_id:
+                        
+                        # current block will also be deleted due to too few entries
+                        # all its entries must be marked for reinsertion
+
+                        for i in range(current_block.size):
+                            entries_for_reinsertion.append([
+                                current_block.records[currently_searching].datafile_record_stored,
+                                current_block.records[currently_searching].vec,
+                                current_node_level
+                            ])
+                        
+                        # delete block by overwriting it with last block of indexfile if it isn't last block
+                        # or just delete block if it is the last block
+
+                        deleted_block_offset = self.block_id_to_file_offset[current_block.block_id]
+
+                        final_block_offset = self.offset_for_next_block_to_enter - \
+                            (struct.calcsize(block_fmt_indexfile) + \
+                                self.maximum_num_of_records * struct.calcsize(record_fmt_indexfile))
+                        
+                        if deleted_block_offset != final_block_offset:
+
+                            # if deleted block is not the last block
+                            final_block_id = [key_block_id for key_block_id, value_offset in self.block_id_to_file_offset.items() if value_offset == final_block_offset][0]
+
+                            # load block stored last in indexfile
+                            final_block = block_load_indexfile(
+                                self.index_file_name,
+                                final_block_id,
+                                final_block_offset
+                            )
+
+                            # overwrite deleted block with the last block
+                            block_write_indexfile(
+                                final_block,
+                                self.index_file_name,
+                                offset=deleted_block_offset
+                            )
+
+                            # update dictionary
+                            self.block_id_to_file_offset[final_block_id] = deleted_block_offset
+                            
+                        # truncate file after new last element (in essence deleting the last stored block space that is no longer needed)
+                        with open(self.index_file_name, 'r+b') as indexfile:
+                            indexfile.seek(final_block_offset)
+                            indexfile.truncate()
+
+                        self.num_of_blocks -= 1
+                        del self.block_id_to_file_offset[current_block.block_id]
+                        self.offset_for_next_block_to_enter = final_block_offset
+
+                        return (1,) # this signals parent node that block was deleted due to merging 
+                    else:
+
+                        # current block won't have less than minimum allowed entries after entry deletion
+                        # therefore just deleting entry
+
+                        bounding_box_of_entry_to_delete = current_block.records[currently_searching].vec
+                        
+                        # delete entry
+                        del current_block.id_to_index[current_block.records[currently_searching].record_id]
+                        current_block.id_to_index[current_block.records[current_block.size - 1].record_id] = currently_searching
+                        current_block.records[currently_searching] = current_block.records[current_block.size - 1]
+                        current_block.records[current_block.size - 1] = Record_Indexfile(point_dim, False, 0)
+                        current_block.size -= 1
+
+                        # update bounding box of current block
+
+                        for dim in range(point_dim):
+                            if bounding_box_of_entry_to_delete[dim][0] == \
+                                current_node_bounding_box[dim][0]:
+                                
+                                # if for a specific dimension the bounding box of the deleted entry has
+                                # a lower value that hits exactly the lower value of the block's bounding box
+                                # at this dimension, find new low value for bounding box
+
+                                lowest: float = current_block.records[0].vec[dim][0]
+                                for record_entry_index in range(1, current_block.size):
+                                    if current_block.records[record_entry_index].vec[dim][0] < lowest:
+                                        lowest = current_block.records[record_entry_index].vec[dim][0]
+                                current_node_bounding_box[dim][0] = lowest
+
+                            if bounding_box_of_entry_to_delete[dim][1] == \
+                                current_node_bounding_box[dim][1]:
+
+                                # if for a specific dimension the bounding box of the deleted entry has
+                                # a high value that hits exactly the high value of the block's bounding box
+                                # at this dimension, find new high value for bounding box
+
+                                highest: float = current_block.records[0].vec[dim][1]
+                                for record_entry_index in range(1, current_block.size):
+                                    if current_block.records[record_entry_index].vec[dim][1] > highest:
+                                        highest = current_block.records[record_entry_index].vec[dim][1]
+                                current_node_bounding_box[dim][1] = highest
+
+                            # if no condition hits, then deletion of the entry does not require changes
+                            # to block's bounding box, other dimension need to be checked too
+
+                        return (2, current_node_bounding_box)
+                elif result_from_recurse[0] == 2:
+                    # deletion to entry to a node caused node below bounding box to change
+                    # update this change to each entry and check whether current block's bounding
+                    # box needs to change to
+
+                    entry_old_bounding_box = current_block.records[currently_searching].vec
+                    current_block.records[currently_searching].vec = result_from_recurse[1]
+                    
+                    # update bounding box of current block
+
+                    bounding_box_changed: bool = False
+
+                    for dim in range(point_dim):
+                        if entry_old_bounding_box[dim][0] == \
+                            current_node_bounding_box[dim][0]:
+                            
+                            # if for a specific dimension the bounding box of the updated entry has
+                            # a lower value that hits exactly the lower value of the block's bounding box
+                            # at this dimension, a check needs to happen to see if this particular value
+                            # has changed in the updated entry, if changed then new lowest value must
+                            # be determined for current block's bounding box
+
+                            if result_from_recurse[1][dim][0] != entry_old_bounding_box[dim][0]:
+                                
+                                # value is changed, thus new value must be determined
+
+                                bounding_box_changed = True
+
+                                lowest: float = current_block.records[0].vec[dim][0]
+                                for record_entry_index in range(1, current_block.size):
+                                    if current_block.records[record_entry_index].vec[dim][0] < lowest:
+                                        lowest = current_block.records[record_entry_index].vec[dim][0]
+                                current_node_bounding_box[dim][0] = lowest
+
+                        if entry_old_bounding_box[dim][1] == \
+                            current_node_bounding_box[dim][1]:
+
+                            # if for a specific dimension the bounding box of the updated entry has
+                            # a high value that hits exactly the high value of the block's bounding box
+                            # at this dimension, a check needs to happen to see if this particular value
+                            # has changed in the updated entry, if changed then new highest value must
+                            # be determined for current block's bounding box
+
+                            if result_from_recurse[1][dim][1] != entry_old_bounding_box[dim][1]:
+
+                                # value is changed, thus new value must be determined
+
+                                bounding_box_changed = True
+
+                                highest: float = current_block.records[0].vec[dim][1]
+                                for record_entry_index in range(1, current_block.size):
+                                    if current_block.records[record_entry_index].vec[dim][1] > highest:
+                                        highest = current_block.records[record_entry_index].vec[dim][1]
+                                current_node_bounding_box[dim][1] = highest
+
+                        # if no condition hits, then deletion of the entry does not require changes
+                        # to block's bounding box, other dimension need to be checked too
+                    
+                    # write block back to indexfile
+                    block_write_indexfile(
+                        current_block,
+                        self.index_file_name,
+                        offset=self.block_id_to_file_offset[current_block.block_id]
+                    )
+
+                    return (2, current_node_bounding_box) if bounding_box_changed else (0,) # returning 0 signals that deletion occured and bounding boxes are no longer updated
+            return None # if all entries that potentially held the point to be deleted turned out not to have the point, return None to signal previous recursion call that the searched entry doesn't have the key so it moves to another entry
 
 
+    def _points_are_equal(point1: list[float], point2: list[float]):
+        """
+        Checks if two n-dimensional points are equal
+
+        This method retrieves the `k` nearest records to a given point from the index file.
+        It uses two heaps:
+        - A min-heap (`min_heap`) to explore the child nodes based on the minimum distance.
+        - A max-heap (`max_heap`) to maintain the `k` nearest records, using the negative of the distance as the key.
+
+        The algorithm handles both leaf and inner nodes of the tree. If the root is a leaf, the method directly computes distances to the records. For inner nodes, it pushes the child nodes into the min-heap for further exploration.
+
+        The max-heap is used to efficiently track the nearest neighbors, ensuring that the farthest neighbor is removed once `k` neighbors are found. The method also terminates early if it detects that no closer points can be found.
+
+        :param k: The number of nearest neighbors to find.
+        :type k: int
+        :param point: The coordinates of the query point.
+        :type point: list
+
+        :return: A list of the `k` nearest records represented as `Record_Datafile`.
+        :rtype: list[Record_Datafile]
+
+        :raises SomeException: maybe if points provided are of different dimension
+                                however this is unlikely to happen
+
+        :example:
+
+        Example usage of the knn method:
+
+        >>> nearest_neighbors = instance.knn(5, [2.5, 4.3, 1.0])
+        >>> print(nearest_neighbors)  # Outputs the 5 nearest neighbors
+        """
+
+        #! maybe add more checks for invalid input
+        for i in range(len(point1)):
+            if point1[i] != point2[i]:
+                return False
+        return True
 
 
+    def remove_point(self, point_id: int, point_coords: list[float], datafile_name: str) -> bool:
+        """
+        Deletes an entry from the catalog
 
+        code details
 
-    def remove_point(self, record: Record_Datafile):
-        pass
+        :param point_id: 
+        :type int:
+        :param point_coords:
+        :type list[float]: 
+
+        initialise list that will hold all entries that will need to be reinserted
+        to the Rtree due to block deletion
+
+        this list will hold elements in the form of [[datafile_block_id, datafile_slot_id], [coordinates], insertion_level] if
+        the reinserted element is inside a leaf node or in the form
+        [indexfile_block_id, [coordinates], insertion_level] if reinserted element is an entry of an 
+        inner Rtree node
+
+        the list will be returned from each recursion
+
+        :return: Nothing
+
+        possible exceptions
+
+        example usages (maybe)
+        """
+
+        # check if deleted point is inside root's bounding box
+        if self._rectangle_contains_point(
+            point=point_coords,
+            rectangle=self.root_bounding_box
+        ):
+            # entries_for_reinsertion list will hold all entries from a block that due to deletion have less entries than allowed,
+            # thus will be deleted and its entries will be reinserted to the rtree
+            # Elements of this list will be in the form of [index_block_id_pointer or datafile_block_and_slot_id_pointer, bounding_box_or_point, level_of_insertion]
+            entries_for_reinsertion: list[list[int, list[list[int, int]], int] | list[list[int, int], list[int], 0]] = []
+
+            result_from_recurse = self._remove_point_recurse(
+                                        point_id,
+                                        point_coords,
+                                        self.root.block_id,
+                                        self.height - 1,
+                                        copy.deepcopy(self.root_bounding_box),
+                                        datafile_name,
+                                        entries_for_reinsertion
+                                    )
+            if result_from_recurse[0] is None:
+                # point was not found thus no deletion happened
+                return False
+            
+            if result_from_recurse[0] == 0:
+                # deletion was performed and no change to root bounding box needs to happen
+                pass
+            if result_from_recurse[0] == 1:
+                # this means that after deletion, root is empty
+                self.root_bounding_box = [[float_info.max, -float_info.max] for _ in range(point_dim)]
+            if result_from_recurse[0] == 2:
+                # this means that deletion recursively changed bounding boxes up to the root's bounding box too
+                self.root_bounding_box = result_from_recurse[1]
+
+            while entries_for_reinsertion:
+                
+                entry_to_reinsert: list[int, list[list[int, int]], int] | list[list[int, int], list[int], 0] = entries_for_reinsertion.pop()
+                self._insert_point(
+                    entry_to_reinsert[0],
+                    entry_to_reinsert[1],
+                    entry_to_reinsert[2]
+                )
+
+        return False # point to be deleted isn't inside root bounding box
 
 
 def rtree_write_indexfile(rtree: Rtree, indexfile_name):
@@ -1252,6 +1971,7 @@ def rtree_read_indexfile(indexfile_name) -> Rtree:
                     )
                 )
             )
+        block_id_to_file_offset = dict(block_id_to_file_offset)
 
 
 
