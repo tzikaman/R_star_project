@@ -90,10 +90,10 @@ if __name__ == '__main__':
 
     # Initialization and creation of our catalog
     catalog: Rtree = Rtree(index_file_name=indexfile_name, 
-                           maximum_num_of_records= block_size//struct.calcsize(record_fmt_indexfile_leaf))
+                           maximum_num_of_records= block_size//struct.calcsize(record_fmt_indexfile_leaf),
+                           datafile_name_change_that=datafile_name)
     catalog.bulk_loading(datafile_name, datafile_blocks_offsets)
 
-    neibours = catalog.skyline_query()
 
 
     ###############################

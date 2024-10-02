@@ -2182,7 +2182,7 @@ class Rtree:
                 return False
         return True
 
-      def _external_mergesort(self, list_of_block_ids):   
+    def _external_mergesort(self, list_of_block_ids):   
 
         # Externally sort every block in indexfile
         tuples_of_b_ids = [(x,) for x in list_of_block_ids]
