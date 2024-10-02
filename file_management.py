@@ -1,11 +1,10 @@
-from datafile_management import Block_Datafile
-from datafile_management import Record_Datafile
+from datafile_management import *
+from indexfile_management import *
 
-from indexfile_management import Block_Indexfile
-from indexfile_management import Record_Indexfile
 
 
 import struct
+
 
 
 from sys import float_info
@@ -103,13 +102,14 @@ def block_write_datafile(b: Block_Datafile, datafile_name, offset) -> int:
 
         new_offset_for_next_block: int = datafile.tell()
 
-        datafile.flush() # redundant as "with" block ensures it
+        datafile.flush()
 
         return new_offset_for_next_block
 
 
 
-def block_write_indexfile(b: Block_Indexfile, indexfile_name, offset) -> int:
+def block_write_indexfile(b, indexfile_name, offset) -> int:
+
 
     with open(indexfile_name, 'r+b') as indexfile:
         indexfile.seek(offset)
@@ -136,6 +136,7 @@ def block_write_indexfile(b: Block_Indexfile, indexfile_name, offset) -> int:
                 packed_record = struct.pack(record_fmt_indexfile, *args)
                 indexfile.write(packed_record)
         new_offset_for_next_block_to_enter = indexfile.tell()
+        
 
         indexfile.flush()
         
@@ -195,7 +196,9 @@ def block_load_datafile(datafile_name, offset) -> Block_Datafile:
 
 
 
+
 def block_load_indexfile(indexfile_name, block_id, offset) -> Block_Indexfile:
+
 
     with open(indexfile_name, 'r+b') as indexfile:
         indexfile.seek(offset)
@@ -208,8 +211,10 @@ def block_load_indexfile(indexfile_name, block_id, offset) -> Block_Indexfile:
         b: Block_Indexfile = Block_Indexfile(
                 point_dim=point_dim, 
                 is_leaf=unpacked_block[1], 
+
                 size_of_record=struct.calcsize(record_fmt_indexfile),
                 block_id=block_id, 
+
                 block_size=block_size, 
                 size=unpacked_block[0]
             )

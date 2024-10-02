@@ -1,5 +1,7 @@
 import math
 from file_management import *
+from datafile_management import *
+from sys import *
 
 point_dim = 2
 
@@ -33,8 +35,16 @@ class Record_Indexfile:
         else:
             self.vec = vec if vec is not None \
                 else [[float_info.max, -float_info.max] for _ in range(dim)] #init in the extreme values of floats
+
+    def __str__(self) -> str:
+        output = 'r_id: ' + str(self.record_id) + ' coords:' + str(self.vec) 
+
+        return output 
+    
+    def set_record_id(self, new_id):
+        self.record_id = new_id
             
-    def is_dominated(self, other: Record_Indexfile):
+    def is_dominated(self, other):
         other_point: Record_Datafile = record_load_datafile(other.datafile_record_stored[0], other.datafile_record_stored[1])
 
         if self.is_leaf:
@@ -58,7 +68,7 @@ class Record_Indexfile:
     # and the record which it is either a bounding box or a point
     # TODO: we need to chech about "negative" distances, meaning that
     # TODO: beginning of axis is inside the bb
-    def calc_min_dist(self, other: Record_Indexfile = None):
+    def calc_min_dist(self, other = None):
         if self.is_leaf :
             point: Record_Datafile = record_load_datafile(self.datafile_record_stored[0], self.datafile_record_stored[1])
             distance = math.sqrt(sum(x**2 for x in point.vec))
@@ -111,6 +121,12 @@ class Block_Indexfile:
         self.id_to_index: dict = dict()
         self.record_id_counter = 1
 
+    def __str__(self) -> str:
+        output = 'block id:' + str(self.block_id) + ' size: ' + str(self.size) + ' percentage of fullness: ' + str(self.size/self.max_num_of_records)
+        
+
+        return output
+
     def give_next_available_record_id(self) -> int:
         next_record_id = self.record_id_counter
         self.record_id_counter += 1
@@ -123,7 +139,41 @@ class Block_Indexfile:
             self.id_to_index[r.record_id] = self.size
             self.size += 1
 
-    # TODO : make sure that this is properly written
+
+
+    def calculate_MBR(self):
+        lower_bound = [float_info.max for _ in range(self.point_dim)]
+        upper_bound = [-float_info.max for _ in range(self.point_dim)]
+
+        if self.is_leaf :
+
+            for record in self.records[:self.size]:
+                for dimension in range(point_dim):
+
+                    if lower_bound[dimension] > record.vec[dimension]:
+                        lower_bound[dimension] = record.vec[dimension]
+
+                    if upper_bound[dimension] < record.vec[dimension]:
+                        upper_bound[dimension] = record.vec[dimension]
+
+        else:
+            for record in self.records[:self.size]:
+                for dimension in range(point_dim):
+
+                    if lower_bound[dimension] > record.vec[dimension][0]:
+                        lower_bound[dimension] = record.vec[dimension][0]
+
+                    if upper_bound[dimension] < record.vec[dimension][1]:
+                        upper_bound[dimension] = record.vec[dimension][1]
+
+        
+        return list(zip(lower_bound, upper_bound))
+
+
+
+
+
+
     def remove_record(self, r_id_for_removal: int):
 
         # if the record exists in the dictionary delete it and reform the records[] and the dictionary
