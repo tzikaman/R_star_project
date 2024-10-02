@@ -2,15 +2,7 @@ from datafile_management import *
 from indexfile_management import *
 
 
-
 import struct
-
-
-from sys import float_info
-
-
-
-#! check again all double loops in list initialisations
 
 
 datafile_blocks_offsets = []

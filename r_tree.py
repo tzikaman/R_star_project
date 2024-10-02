@@ -1682,11 +1682,59 @@ class Rtree:
 
         print(self.root_bounding_box)
         print(root_block)
+        return root_block
+
+    def _initialize_leaf_root(self, list_of_records):
+
+        root_block: Block_Indexfile = Block_Indexfile(point_dim,
+                                                      True,
+                                                      struct.calcsize(record_fmt_indexfile_leaf),
+                                                      self._give_next_available_block_id()
+                                                      )
         
+        
+        while list_of_records:
+            root_block.add_record(list_of_records.pop(0))
+
+        self.block_id_to_file_offset[root_block.block_id] = self.offset_for_next_block_to_enter
+        self.offset_for_next_block_to_enter = block_write_indexfile(root_block, 
+                                                                    self.index_file_name,
+                                                                    self.offset_for_next_block_to_enter
+                              )
+        self.root_bounding_box = root_block.calculate_MBR()
+
+        return root_block
+        
+
             
 
         
     def _load_datafile_to_indexfile(self, datafile_name, df_blocks_offsets):
+
+        block_size = block_load_datafile(datafile_name, df_blocks_offsets[0]).block_size
+        if (block_size // struct.calcsize(record_fmt_datafile) ) * len(df_blocks_offsets) < 0.85*self.maximum_num_of_records:
+
+            list_of_records = []
+
+            record_counter = 0
+            while df_blocks_offsets:
+                block: Block_Datafile = block_load_datafile(datafile_name,
+                                                            df_blocks_offsets.pop(0))
+                
+
+                for record in block.records[:block.size]:
+                    idxf_record = Record_Indexfile(point_dim,
+                                                   True,
+                                                   [block.block_id, record.record_id],
+                                                   record_counter + 1,
+                                                   record.vec)
+                    
+                    record_counter += 1
+
+                    list_of_records.append(idxf_record)
+
+            return list_of_records
+        
         # Initializations
         recs_to_insert = list()
         num_of_df_blocks = len(df_blocks_offsets)
@@ -1756,8 +1804,14 @@ class Rtree:
 
     def bulk_loading(self, datafile_name, df_blocks_offsets):
         
-        # Bring all data to indexfile blocks
-        self._load_datafile_to_indexfile(datafile_name, df_blocks_offsets)
+        # Bring all data to indexfile blocks, if not
+        # enough return a list with the records that
+        # will be inserted to root
+        list_of_records = self._load_datafile_to_indexfile(datafile_name, df_blocks_offsets)
+        print('list', list_of_records)
+        if list_of_records != None :
+            self.root = self._initialize_leaf_root(list_of_records)
+
 
         # Initialize the list with all the keys of dict
         blocks_in_same_level = list(self.block_id_to_file_offset.keys())
@@ -1778,7 +1832,7 @@ class Rtree:
 
 
         # Initialize root
-        self._initialize_root(blocks_in_same_level)
+        self.root = self._initialize_root(blocks_in_same_level)
 
 
 

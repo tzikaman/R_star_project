@@ -64,16 +64,18 @@ if __name__ == '__main__':
     indexfile.close()
     del indexfile
 
-
+    # We define the batch size 
     batch_size = block_size // struct.calcsize(record_fmt_datafile)
 
+    # Calling the handler to move the nodes from osm 
+    # in datafile
     handler = osm_reader.BatchHandler(datafile_name, batch_size)
 
     import time
     start1 = time.time()
     ####################
 
-    handler.apply_file(osm_path3)
+    handler.apply_file(osm_path1)
 
     datafile_blocks_offsets = handler.finalize()
 
@@ -86,16 +88,15 @@ if __name__ == '__main__':
     start2 = time.time()
     #########################
 
+    # Initialization and creation of our catalog
     catalog: Rtree = Rtree(index_file_name=indexfile_name, 
                            maximum_num_of_records= block_size//struct.calcsize(record_fmt_indexfile_leaf))
     catalog.bulk_loading(datafile_name, datafile_blocks_offsets)
+
+    neibours = catalog.skyline_query()
+
 
     ###############################
     end2 = time.time()
     print(f"Elapsed time for bulking: {end2-start2:.6f} seconds")
 
-
-    # for id, offset in enumerate(datafile_blocks_offsets) :
-    #     block = block_load_datafile(datafile_name,
-    #                                 offset)
-    #     print(id,block.size)
