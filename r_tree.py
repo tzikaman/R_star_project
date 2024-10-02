@@ -1177,10 +1177,10 @@ class Rtree:
 
         return z_value
     
-    def get_z_value(self, rec: Record_Indexfile) -> int:
+    def get_z_value(self, point_in_space: list) -> int:
         integerized_coords = []
 
-        for coordinate in rec.vec:
+        for coordinate in point_in_space:
             integerized_coords.append(self._shift_decimal_to_integer(coordinate)) 
 
 
@@ -1233,7 +1233,7 @@ class Rtree:
         counter2 += 1
         bucket2_counter = 0
 
-        filling_percentage = 0.7*block.max_num_of_records
+        filling_percentage = 0.85 * self.maximum_num_of_records
 
         out = []
 
@@ -1251,7 +1251,7 @@ class Rtree:
 
             # Compare the 2 elements by their z_values
             # and put the smallest in out block
-            if self.get_z_value(rec1) < self.get_z_value(rec2):
+            if self.get_z_value(rec1.vec) < self.get_z_value(rec2.vec):
                 out.append(rec1)
                 bucket1_counter += 1
             else:
@@ -1439,45 +1439,79 @@ class Rtree:
                         bucket2_counter = 0
         
         
-        j = 0
         additive = min(free_ids)
+        reordered_dict = {i + additive: self.block_id_to_file_offset[block_id] for i, block_id in enumerate(free_ids)}
 
-        while j < len(free_ids) - 1:
-            if j+additive == free_ids[j]:
-                j += 1
-            else:
-                self.block_id_to_file_offset[-1] = self.block_id_to_file_offset.pop(j+additive)
-                self.block_id_to_file_offset[j+additive] = self.block_id_to_file_offset.pop(free_ids[j])
-                self.block_id_to_file_offset[free_ids[j]] = self.block_id_to_file_offset.pop(-1)
-
-                j += 1
+        for key, value in reordered_dict.items():
+            self.block_id_to_file_offset[key] = value
 
 
-        
-        
+         
 
-            
-            
+        #print(self.block_id_to_file_offset)
+        # j = 0
+        # additive = min(free_ids)
+        # print('dict before: ', self.block_id_to_file_offset)
+        # while j < len(free_ids) - 1:
+        #     if j+additive == free_ids[j]:
+        #         j += 1
+        #     else:
+        #         print(free_ids)
+        #         print('key ' + str(j+additive) + 'must have ' + str(self.block_id_to_file_offset[free_ids[j]]) + ' value')
+        #         print('key ' + str(free_ids[j]) + 'must have ' + str(self.block_id_to_file_offset[j+additive]) + ' value')
+        #         print()
+
+        #         self.block_id_to_file_offset[-1] = self.block_id_to_file_offset.pop(j+additive)
+        #         self.block_id_to_file_offset[j+additive] = self.block_id_to_file_offset.pop(free_ids[j])
+        #         self.block_id_to_file_offset[free_ids[j]] = self.block_id_to_file_offset.pop(-1)
+        #         print('dict after: ',self.block_id_to_file_offset)
+
+        #         print()
+        #         print()
+        #         j += 1
+       
 
 
-        
-    
-    def _external_mergesort(self):
-        
-        # Internally sort every block in indexfile based on z_value
-        for b_id, offset in self.block_id_to_file_offset.items():
+
+    def _calculate_centroid(self, rec: Record_Indexfile):
+        centroid = []
+        MBR = rec.vec
+
+        for dimension in MBR:
+            centroid.append( 
+                ( abs(dimension[1]) - abs(dimension[0]) ) / 2  # ( upper - lower bound ) / 2
+                )
+
+
+    def _internal_sorting(self, list_of_block_ids):
+        # Internally sort every block listed based on z_value.
+        # If leaf block sort based on z_value of coordinates of its records.
+        # If inner block sort based on z_value of centroid of its records.
+        for id in list_of_block_ids:
+            b_id = id
+            offset = self.block_id_to_file_offset[b_id]
+
             block: Block_Indexfile = block_load_indexfile(self.index_file_name,
                                                           offset,
                                                           b_id)
             
 
             z_order_list = []
-            for i in range(block.size):
-                z_order_list.append( (self.get_z_value(block.records[i]), block.records[i]) )
+            if block.is_leaf:
+                for i in range(block.size):
+                    coordinates = block.records[i].vec
+                    z_order_list.append( (self.get_z_value(coordinates), block.records[i]) )
+            else:
+                for i in range(block.size):
+                    centroid = self._calculate_centroid(block.records[i].vec)
+                    z_order_list.append( (self.get_z_value(centroid), block.records[i] ) )
 
-            sorted_list: list[(int,Record_Indexfile)]= sorted(z_order_list, key = lambda x:x[0])
+            sorted_list: list[(int,Record_Indexfile)] = sorted(z_order_list, key = lambda x:x[0])
             
             
+            # Replace all of the records in the right order
+            # and update the dictionary
+
             block.id_to_index = {}
             for i in range(len(sorted_list)):
                 block.records[i] = sorted_list[i][1]
@@ -1485,20 +1519,22 @@ class Rtree:
             
                 block.id_to_index[sorted_list[i][1].record_id] = i
             
-
+            # Finally write block in file
             block_write_indexfile(block, 
                                   self.index_file_name,
                                   offset)
-            
+
+
+    def _external_mergesort(self, list_of_block_ids):   
 
         # Externally sort every block in indexfile
-        list_of_b_ids = [(x,) for x in self.block_id_to_file_offset.keys()]
+        tuples_of_b_ids = [(x,) for x in list_of_block_ids]
 
-        while len(list_of_b_ids) > 1:
+        while len(tuples_of_b_ids) > 1:
             new_list = []
-            for i in range(0, len(list_of_b_ids), 2):
-                tuple1 = list_of_b_ids[i]
-                tuple2 = list_of_b_ids[i+1] if i+1 < len(list_of_b_ids) else None
+            for i in range(0, len(tuples_of_b_ids), 2):
+                tuple1 = tuples_of_b_ids[i]
+                tuple2 = tuples_of_b_ids[i+1] if i+1 < len(tuples_of_b_ids) else None
                 
                 if tuple2:
                     self.two_way_merge(tuple1, tuple2)
@@ -1506,56 +1542,194 @@ class Rtree:
                 else:
                     new_list.append(tuple1)
 
-            list_of_b_ids = new_list
+            tuples_of_b_ids = new_list
            
+    def _shifting(self, list_of_block_ids):
+        last_element: Block_Indexfile = block_load_indexfile(self.index_file_name,
+                                            self.block_id_to_file_offset[list_of_block_ids[-1]],
+                                            list_of_block_ids[-1])
+        
+        if last_element.size >= self.minimum_num_of_records :
+            return list_of_block_ids
+        else:
+            ###########CASE 1
+            num_of_full_blocks = len(list_of_block_ids) - 1
+            chunk_size = math.ceil( 
+                            last_element.size / num_of_full_blocks
+                        )
+            
+            print(chunk_size)
+            
+            for i in range(num_of_full_blocks - 1):
+                
+
+                full_block1: Block_Indexfile = block_load_indexfile(self.index_file_name,
+                                              self.block_id_to_file_offset[list_of_block_ids[i]],
+                                              list_of_block_ids[i]
+                )
+                full_block2: Block_Indexfile = block_load_indexfile(self.index_file_name,
+                                              self.block_id_to_file_offset[list_of_block_ids[i+1]],
+                                              list_of_block_ids[i+1]
+                )
+
+                for _ in range(chunk_size * (i+1)):
+                    
+
+                    record_for_insertion = full_block2.records.pop(0)
+                    full_block2.size -= 1
+                    full_block2.records.append(Record_Indexfile(point_dim,
+                                                            record_for_insertion.is_leaf,
+                                                            [0,0] if record_for_insertion.is_leaf else 0))
+
+                    record_for_insertion.set_record_id(full_block1.give_next_available_record_id())
+                    full_block1.add_record(record_for_insertion)
+
+                block_write_indexfile(full_block1,
+                                      self.index_file_name,
+                                      self.block_id_to_file_offset[list_of_block_ids[i]])
+                
+
+                block_write_indexfile(full_block2,
+                                      self.index_file_name,
+                                      self.block_id_to_file_offset[list_of_block_ids[i+1]])
+                
+            full_block: Block_Indexfile = block_load_indexfile(self.index_file_name,
+                                              self.block_id_to_file_offset[list_of_block_ids[num_of_full_blocks - 1]],
+                                              list_of_block_ids[num_of_full_blocks - 1]
+                )
+            
+            
+            for record in last_element.records[:last_element.size] :
+                record.set_record_id(full_block.give_next_available_record_id())
+                full_block.add_record(record)
+            
+            block_write_indexfile(full_block,
+                                      self.index_file_name,
+                                      self.block_id_to_file_offset[list_of_block_ids[num_of_full_blocks - 1]])
+            
+            self.block_id_to_file_offset.pop(last_element.block_id)
+
+
+            list_of_block_ids.pop()
+            return list_of_block_ids
+
+
+    def _create_next_level(self, list_of_block_ids):
+        num_of_new_blocks_to_create = math.ceil(len(list_of_block_ids) / ( 0.85 * self.maximum_num_of_records))
+        new_list_of_block_ids = []
+
+        for _ in range(num_of_new_blocks_to_create):
+            block: Block_Indexfile = Block_Indexfile(point_dim,
+                                                     False,
+                                                     struct.calcsize(record_fmt_indexfile_inner),
+                                                     self._give_next_available_block_id()
+                                                     )
+            record_counter = 0
+            while record_counter < 0.85 * self.maximum_num_of_records or (not list_of_block_ids):
+                lower_level_block = block_load_indexfile(self.index_file_name,
+                                                         self.block_id_to_file_offset[list_of_block_ids[0]],
+                                                         list_of_block_ids.pop(0))
+                new_record: Record_Indexfile = Record_Indexfile(point_dim,
+                                                                False,
+                                                                lower_level_block.block_id,
+                                                                record_counter + 1,
+                                                                lower_level_block.calculate_MBR())
+                block.add_record(new_record)
+
+            new_list_of_block_ids.append(block.block_id)
+
+            self.block_id_to_file_offset[block.block_id] = self.offset_for_next_block_to_enter
+            self.offset_for_next_block_to_enter = block_write_indexfile(block,
+                                                                    self.index_file_name,
+                                                                    self.offset_for_next_block_to_enter)
+            self.num_of_blocks += 1
+    
+        self.height += 1
+        return new_list_of_block_ids
+            
+
+    def _initialize_root(self, list_of_block_ids):
+        
+    
+        root_block: Block_Indexfile = Block_Indexfile(point_dim,
+                                                      False,
+                                                      struct.calcsize(record_fmt_indexfile_inner),
+                                                      self._give_next_available_block_id()
+                                                      )
+        record_counter = 0
+        while list_of_block_ids:
+            lower_level_block = block_load_indexfile(self.index_file_name,
+                                                        self.block_id_to_file_offset[list_of_block_ids[0]],
+                                                        list_of_block_ids.pop(0))
+            new_record: Record_Indexfile = Record_Indexfile(point_dim,
+                                                            False,
+                                                            lower_level_block.block_id,
+                                                            record_counter + 1,
+                                                            lower_level_block.calculate_MBR())
+            root_block.add_record(new_record)
+
+            record_counter += 1
+
+            
+
+        self.block_id_to_file_offset[root_block.block_id] = self.offset_for_next_block_to_enter
+        self.offset_for_next_block_to_enter = block_write_indexfile(root_block,
+                                                                self.index_file_name,
+                                                                self.offset_for_next_block_to_enter)
+        self.num_of_blocks += 1
+        
+        self.root_bounding_box = root_block.calculate_MBR()
+
+        print(self.root_bounding_box)
+        print(root_block)
+        
+            
 
         
-    def bulk_loading(self, datafile_name, df_blocks_offsets):
-        
-        # Bring all data to indexfile blocks
+    def _load_datafile_to_indexfile(self, datafile_name, df_blocks_offsets):
+        # Initializations
         recs_to_insert = list()
         num_of_df_blocks = len(df_blocks_offsets)
         offset_iterator = 0
 
-        
+        # Fetch the first block from datafile and update the iterator
         df_block = block_load_datafile(datafile_name, df_blocks_offsets[offset_iterator])
-
         offset_iterator +=1
 
+        # Put all of the records of the block above 
+        # in the list 'recs_to_insert'
         for rec in df_block.records:
-            if rec.vec != [0,0]:
+            if rec.id != 0 : # Means its a dummy record
                 recs_to_insert.append( (df_block.block_id, rec) )
 
             
             
         
-
+        # It runs until every block is transfered
         while recs_to_insert or offset_iterator < num_of_df_blocks:
             
             idxf_block: Block_Indexfile = Block_Indexfile(point_dim,
                                                           True,
                                                           struct.calcsize(record_fmt_indexfile_leaf),
                                                           self._give_next_available_block_id())
-            while idxf_block.size < 0.7 * idxf_block.max_num_of_records:
+            
+            while idxf_block.size < 0.85 * self.maximum_num_of_records:
                 if len(recs_to_insert) == 0: # if list of recs is empty
-                    if offset_iterator >= num_of_df_blocks: # and blocks in datafile are exhausted, terminate
+                    if offset_iterator >= num_of_df_blocks: # and if blocks in datafile are exhausted, terminate
                         break
-                    else:
+                    else: # fetch a datafile block and load recs_to_insert
                         df_block = block_load_datafile(datafile_name, df_blocks_offsets[offset_iterator])
                         offset_iterator += 1
 
-                        # test_counter = 0
+                        
                         for rec in df_block.records:
-                            if rec.vec != [0,0]:
+                            if rec.id != 0: # Means its not a dummy record
                                 recs_to_insert.append( (df_block.block_id, rec) )
+
 
                         if len(recs_to_insert) == 0 :
                             break
 
-                        #     if rec.vec == [0,0]:
-                        #         test_counter+=1
-                        #         print('papariaaaaaaaaaaaaaa ',df_block.block_id)
-                        # print(test_counter)
 
                 b_id, df_record = recs_to_insert.pop()
 
@@ -1567,7 +1741,8 @@ class Rtree:
                                                                  vec= df_record.vec)
                 idxf_block.add_record(idxf_record)
             
-
+            # Block is filled or somewhat filled because datafile
+            # blocks are exhausted
             self.block_id_to_file_offset[idxf_block.block_id] = self.offset_for_next_block_to_enter
             self. offset_for_next_block_to_enter = \
                 block_write_indexfile(idxf_block, 
@@ -1575,61 +1750,54 @@ class Rtree:
                                       self.offset_for_next_block_to_enter
                                       )
             
+        self.num_of_blocks = len(self.block_id_to_file_offset)
+        self.num_of_leaves = self.num_of_blocks
+
+
+    def bulk_loading(self, datafile_name, df_blocks_offsets):
+        
+        # Bring all data to indexfile blocks
+        self._load_datafile_to_indexfile(datafile_name, df_blocks_offsets)
+
+        # Initialize the list with all the keys of dict
+        blocks_in_same_level = list(self.block_id_to_file_offset.keys())
+        
+        self._internal_sorting(blocks_in_same_level)
+        self._external_mergesort(blocks_in_same_level)
+        blocks_in_same_level = self._shifting(blocks_in_same_level)
+        print('same level blocks', blocks_in_same_level)
+
+        while len(blocks_in_same_level) > 0.85 * self.maximum_num_of_records:
+            print('same level blocks', blocks_in_same_level)
+            blocks_in_next_level = self._create_next_level(blocks_in_same_level)
+            blocks_in_same_level = blocks_in_next_level
+
+            self._internal_sorting(blocks_in_same_level)
+            self._external_mergesort(blocks_in_same_level)
+            blocks_in_same_level = self._shifting(blocks_in_same_level)
+
+
+        # Initialize root
+        self._initialize_root(blocks_in_same_level)
+
+
+
+
+
         ###############################################
-        # for b_id, offset in self.block_id_to_file_offset.items():
-        #     block = block_load_indexfile(self.index_file_name,
-        #                                  offset,
-        #                                  b_id)
-        #     flag = True
-        #     counter = 0
-        #     for x in block.records[:block.size]:
-        #         if x.vec == [0,0]:
-        #             counter += 1
-        #             if flag:
-        #                 print('ERRORRRRRRRRRRRR: ',block)
-        #                 flag = False
-        #     print('counter of false: ',counter)
+        print("blocks after transfer")
+        
+        for id,offset in self.block_id_to_file_offset.items():
+            block = block_load_indexfile(self.index_file_name,
+                                         offset,
+                                         id)
+            print(block)
+        ###############################################
+
+
+        # self._build_tree()
             
-        
-        self._external_mergesort()
-
-        ################################################
-        # print("blocks after transfer")
-        # for id,offset in self.block_id_to_file_offset.items():
-        #     block = block_load_indexfile(self.index_file_name,
-        #                                  offset,
-        #                                  id)
-        #     print(block)
-        #     if block.block_id == 1:
-        #         for i in range(block.size):
-        #             print(block.records[i].vec)
-
-        # sys.exit()
-
-        
-
-        # for i in range (1,11):
-        #     block = block_load_indexfile(self.index_file_name,
-        #                                 self.block_id_to_file_offset[i],
-        #                                 i)
-        
-        #     mo_lat_1 = 0
-        #     mo_lon_1 = 0
-        #     for i in range(block.size):
-        #         # print(block.records[i].vec[0],block.records[i].vec[1])
-        #         mo_lat_1 += block.records[i].vec[0]/block.size
-        #         mo_lon_1 += block.records[i].vec[1]/block.size
-
-        #     print(mo_lat_1, mo_lon_1)
-
-       
-
-
-
-        
-            
-        
-        pass
+     
 
     def remove_point(self, record: Record_Datafile):
         pass

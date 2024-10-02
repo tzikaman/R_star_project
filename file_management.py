@@ -103,6 +103,7 @@ def block_write_indexfile(b, indexfile_name, offset) -> int:
                 packed_record = struct.pack(record_fmt_indexfile_inner, *args)
                 indexfile.write(packed_record)
         new_offset_for_next_block_to_enter = indexfile.tell()
+        
 
         indexfile.flush()
         
@@ -159,7 +160,7 @@ def block_load_datafile(datafile_name, offset) -> Block_Datafile:
         return b
 
 
-def block_load_indexfile(indexfile_name, offset, b_id) -> Block_Indexfile:
+def block_load_indexfile(indexfile_name, offset, b_id):
 
     with open(indexfile_name, 'r+b') as indexfile:
         indexfile.seek(offset)
