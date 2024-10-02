@@ -16,32 +16,9 @@ from sys import float_info
 import osm_reader
 
 
-#! check again all double loops in list initialisations
+#! check again all double loops in list initialisationss
 
 
-datafile_blocks_offsets = []
-offset_for_next_block = 0
-
-
-
-
-point_dim = 2
-block_size = 2**15
-
-
-
-# TODO : check that the formats below are still
-# TODO : valid
-#! Some formats are given as a string literal at places 
-#! in the code, check for these too
-rtree_fmt = '>IIIIIII?'
-
-block_fmt_datafile = '>IIII'
-block_fmt_indexfile = '>I?'
-
-record_fmt_datafile = '>IQ30s' + ''.join(['d' for _ in range(point_dim)])
-record_fmt_indexfile_inner = '>II' + ''.join(['d' for _ in range(2 * point_dim)])
-record_fmt_indexfile_leaf = '>III' + ''.join(['d' for _ in range(point_dim)])
 
 
 

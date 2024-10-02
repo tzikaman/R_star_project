@@ -14,8 +14,8 @@ class Record_Indexfile:
             dim: int, # This can be optional meaning it defaults at 2 and needs to be removed from fields 
                       # because we can use it and discard it as it contains information that can be easily extracted using len(vec)
             is_leaf: bool, 
-            datafile_record_stored: int | list[int, int], # pointer to either a block on R-tree in indexfile
-                                                          # or a unique key (block_id, record_id) to identify a record in datafile
+            datafile_record_stored: list[int, int] | int, # pointer to either a block on R-tree in indexfile
+                                                    # or a unique key (block_id, record_id) to identify a record in datafile
             record_id: int = 0, 
             vec: list[float] = None
         ):
@@ -173,6 +173,7 @@ class Block_Indexfile:
 
 
 
+
     def remove_record(self, r_id_for_removal: int):
 
         # if the record exists in the dictionary delete it and reform the records[] and the dictionary
@@ -187,3 +188,34 @@ class Block_Indexfile:
 
             # Delete the record from the dictionary and update the "last" element
             self.id_to_index[last_element.record_id] = self.id_to_index.pop(r_id_for_removal)
+
+    #! check for case for an empty root
+    def calculate_bounding_box(self) -> list[list[int, int]]:
+        bounding_box = []
+
+        if self.is_leaf:
+
+            for dim in point_dim:
+
+                lowest = self.records[0].vec[dim] if self.size else float_info.max
+                highest = self.records[0].vec[dim] if self.size else -float_info.max
+                for rec_index in self.size:
+                    if self.records[rec_index].vec[dim] < lowest:
+                        lowest = self.records[rec_index].vec[dim]
+                    elif self.records[rec_index].vec[dim] > highest:
+                        highest = self.records[rec_index].vec[dim]
+                bounding_box.append([lowest, highest])
+        else:
+            
+            for dim in point_dim:
+
+                lowest = self.records[0].vec[dim][0]
+                highest = self.records[0].vec[dim][1]
+                for rec_index in self.size:
+                    if self.records[rec_index].vec[dim][0] < lowest:
+                        lowest = self.records[rec_index].vec[dim][0]
+                    if self.records[rec_index].vec[dim][1] > highest:
+                        highest = self.records[rec_index].vec[dim][1]
+                bounding_box.append([lowest, highest])
+
+        return bounding_box
